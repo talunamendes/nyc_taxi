@@ -1,0 +1,68 @@
+[project]
+name = "nyc_taxi"
+version = "0.1.0"
+description = "NYC Yellow Taxi Lakehouse — Case técnico iFood"
+authors = [{ name = "tmendes.aws@gmail.com" }]
+requires-python = ">=3.10,<3.13"
+readme = "README.md"
+dependencies = [
+    # Any dependencies for jobs and pipelines in this project can be added here
+    # See also https://docs.databricks.com/dev-tools/bundles/library-dependencies
+    #
+    # LIMITATION: for pipelines, dependencies are cached during development;
+    # add dependencies to the 'environment' section of your pipeline.yml file instead
+]
+
+[dependency-groups]
+dev = [
+    "mypy==2.0.0",
+    "pre-commit==4.6.0",
+    "pytest==9.0.3",
+    "ruff==0.15.12",
+    "databricks-connect>=15.4,<15.5",
+    "ipykernel",
+]
+
+#[project.scripts]
+#main = "nyc_taxi.main:main"
+
+#[build-system]
+#requires = ["hatchling"]
+#build-backend = "hatchling.build"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "N",      # pep8-naming
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "SIM",    # flake8-simplify
+    "TCH",    # flake8-type-checking
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_any_generics = true
+check_untyped_defs = true
+no_implicit_reexport = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra"
