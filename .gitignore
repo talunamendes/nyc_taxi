@@ -10,3 +10,4 @@ scratch/**
 **/!explorations/README.md
 
 .vscode/
+.idea/
