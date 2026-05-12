@@ -1,7 +1,7 @@
 [project]
 name = "nyc_taxi"
-version = "0.1.0"
-description = "NYC Yellow Taxi Lakehouse — Case técnico iFood"
+version = "0.1.1"
+description = "NYC Yellow Taxi Lakehouse"
 authors = [{ name = "tmendes.aws@gmail.com" }]
 requires-python = ">=3.10,<3.13"
 readme = "README.md"
@@ -11,6 +11,7 @@ dependencies = [
     #
     # LIMITATION: for pipelines, dependencies are cached during development;
     # add dependencies to the 'environment' section of your pipeline.yml file instead
+    "requests>=2.33.1",
 ]
 
 [dependency-groups]
@@ -23,12 +24,25 @@ dev = [
     "ipykernel",
 ]
 
+# Entry points consumidos pelas Databricks python_wheel tasks.
+# No Workflow YAML, referencie por nome:
+#
+#     python_wheel_task:
+#       package_name: myc_taxi
+#       entry_point: source_to_landing    # ← este nome
+#       parameters: ["--target-year=2023", "--target-months=1,2,3,4,5"]
+#
+# Cada entrada cria também um script em /usr/local/bin/<nome> dentro
+# do venv da wheel, útil para testes via CLI direto.
 #[project.scripts]
-#main = "nyc_taxi.main:main"
-
-#[build-system]
-#requires = ["hatchling"]
-#build-backend = "hatchling.build"
+#source_to_landing   = "nyc_taxi.lakehouse.landing:main"
+#landing_to_bronze   = "nyc_taxi.lakehouse.bronze:main"
+#bronze_to_silver    = "nyc_taxi.lakehouse.silver:main"
+#silver_to_gold      = "nyc_taxi.lakehouse.gold:main"
+#
+#[tool.setuptools.packages.find]
+#where = ["."]
+#include = ["src*"]
 
 [tool.ruff]
 target-version = "py312"

@@ -26,7 +26,7 @@ resources:
             package_name: nyc_taxi
             entry_point: landing_layer
           libraries:
-            - whl: ../dist/nyc_taxi-0.1.0-py3-none-any.whl
+            - whl: ../dist/nyc_taxi-0.1.1-py3-none-any.whl
 
         - task_key: bronze
           job_cluster_key: nyc_taxi_job_cluster
@@ -36,7 +36,7 @@ resources:
             package_name: nyc_taxi
             entry_point: bronze_layer
           libraries:
-            - whl: ../dist/nyc_taxi-0.1.0-py3-none-any.whl
+            - whl: ../dist/nyc_taxi-0.1.1-py3-none-any.whl
 
         - task_key: silver
           job_cluster_key: nyc_taxi_job_cluster
@@ -46,7 +46,7 @@ resources:
             package_name: nyc_taxi
             entry_point: silver_layer
           libraries:
-            - whl: ../dist/nyc_taxi-0.1.0-py3-none-any.whl
+            - whl: ../dist/nyc_taxi-0.1.1-py3-none-any.whl
 
         - task_key: gold
           job_cluster_key: nyc_taxi_job_cluster
@@ -56,7 +56,7 @@ resources:
             package_name: nyc_taxi
             entry_point: gold_layer
           libraries:
-            - whl: ../dist/nyc_taxi-0.1.0-py3-none-any.whl
+            - whl: ../dist/nyc_taxi-0.1.1-py3-none-any.whl
 
       job_clusters:
         - job_cluster_key: nyc_taxi_job_cluster

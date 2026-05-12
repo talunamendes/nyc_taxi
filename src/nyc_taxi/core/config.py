@@ -31,7 +31,7 @@ class PipelineConfig:
     bronze_schema: str = "bronze"
     silver_schema: str = "silver"
     gold_schema: str = "gold"
-    obs_schema: str = "observability"
+    #obs_schema: str = "observability"
 
     # === Volumes (UC Volume substitui S3 no Free Edition) ===
     landing_volume: str = "nyc_taxi_raw"
@@ -47,7 +47,7 @@ class PipelineConfig:
 
     # === Janela de processamento ===
     target_year: int = 2023
-    target_months: tuple[int, ...] = field(default_factory=lambda: (1, 2, 3, 4, 5))
+    target_months: tuple[int, ...] = field(default_factory=lambda: (1,2,3,4,5,))
 
     # === Fonte externa ===
     tlc_url_template: str = (
