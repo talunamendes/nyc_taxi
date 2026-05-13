@@ -68,3 +68,15 @@ with this project. It's also possible to interact with it directly using the CLI
    ```
    $ uv run pytest
    ```
+
+## Running on Databricks Free Edition
+
+If you cloned this repository and are using your own Databricks workspace, follow:
+
+- `docs/FREE_EDITION_SETUP.md`
+
+DDL bootstrap scripts for Unity Catalog objects are available at:
+
+- `docs/sql/001_create_catalog.sql`
+- `docs/sql/002_create_schemas.sql`
+- `docs/sql/003_create_volumes.sql`
