@@ -6,6 +6,7 @@ Este diretório contém Architectural Decision Records (ADRs) do projeto.
 - [ADR-002: Executar ingestão via python_wheel entry point](./ADR-002-python-wheel-entrypoint.md)
 - [ADR-003: Permitir falha parcial por mês na ingestão](./ADR-003-partial-failure-policy.md)
 - [ADR-004: Usar DAB para CI/CD](./ADR-004-dab-para-cicd.md)
+- [ADR-005: Usar Serverless Jobs como compute](./ADR-005-serverless-vs-classic-cluster.md)
 
 ## Como revisar um ADR
 
