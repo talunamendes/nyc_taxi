@@ -1,5 +1,5 @@
-# This is a Databricks asset bundle definition for nyc_taxi.
-# See https://docs.databricks.com/dev-tools/bundles/index.html for documentation.
+# This is a Databricks Declarative Automation Bundles definition for nyc_taxi.
+# See https://docs.databricks.com/en/dev-tools/bundles/ for official documentation.
 bundle:
   name: nyc_taxi
   uuid: ade1ea1d-ba3a-4e84-8f20-3bfbfdf9d7b9
