@@ -21,62 +21,40 @@ resources:
 
       tasks:
         - task_key: landing
-          job_cluster_key: nyc_taxi_job_cluster
+          environment_key: default
           python_wheel_task:
             package_name: nyc_taxi
             entry_point: landing_layer
-          libraries:
-            - whl: ../dist/nyc_taxi-0.1.1-py3-none-any.whl
 
         - task_key: bronze
-          job_cluster_key: nyc_taxi_job_cluster
+          environment_key: default
           depends_on:
             - task_key: landing
           python_wheel_task:
             package_name: nyc_taxi
             entry_point: bronze_layer
-          libraries:
-            - whl: ../dist/nyc_taxi-0.1.1-py3-none-any.whl
 
         - task_key: silver
-          job_cluster_key: nyc_taxi_job_cluster
+          environment_key: default
           depends_on:
             - task_key: bronze
           python_wheel_task:
             package_name: nyc_taxi
             entry_point: silver_layer
-          libraries:
-            - whl: ../dist/nyc_taxi-0.1.1-py3-none-any.whl
 
         - task_key: gold
-          job_cluster_key: nyc_taxi_job_cluster
+          environment_key: default
           depends_on:
             - task_key: silver
           python_wheel_task:
             package_name: nyc_taxi
             entry_point: gold_layer
-          libraries:
-            - whl: ../dist/nyc_taxi-0.1.1-py3-none-any.whl
-
-      job_clusters:
-        - job_cluster_key: nyc_taxi_job_cluster
-          new_cluster:
-            spark_version: 17.3.x-scala2.13
-            aws_attributes:
-              first_on_demand: 1
-              availability: SPOT_WITH_FALLBACK
-              zone_id: us-east-1e
-              spot_bid_price_percent: 100
-              ebs_volume_count: 0
-            node_type_id: i3.xlarge
-            driver_node_type_id: i3.xlarge
-            spark_env_vars:
-              PYSPARK_PYTHON: /databricks/python3/bin/python3
-            enable_elastic_disk: true
-            data_security_mode: SINGLE_USER
-            runtime_engine: STANDARD
-            autoscale:
-              min_workers: 1
-              max_workers: 1
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "2"
+            # For serverless jobs, Python dependencies must be declared in environment.
+            dependencies:
+              - ${workspace.file_path}/dist/${var.wheel_file}
       queue:
         enabled: true
