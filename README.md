@@ -89,6 +89,7 @@ ORDER BY 1;
 - **ADRs**: `docs/adr/README.md`
 - **Threat Model**: `docs/threat-model.md`
 - **TCO Model**: `docs/tco-model.md`
+- **Analise por Camada (Landing/Bronze/Silver/Gold)**: `docs/layers/README.md`
 
 ## Estrutura do Repositório
 
@@ -98,4 +99,24 @@ Esta organização segue a estrutura base gerada pelo template `default-python` 
 - `resources/`: definição de workflow/job com Declarative Automation Bundles (DAB)
 - `tests/`: testes unitários
 - `docs/adr/`: registros de decisões arquiteturais
+- `docs/layers/`: analises tecnicas por camada do lakehouse
 - `docs/sql/`: DDL de bootstrap
+
+## Referências Técnicas
+
+### Databricks (documentação oficial)
+
+- [Databricks Declarative Automation Bundles (DAB)](https://docs.databricks.com/en/dev-tools/bundles/)
+- [Databricks Jobs](https://docs.databricks.com/en/jobs/)
+- [Serverless compute for workflows (Jobs)](https://docs.databricks.com/en/jobs/run-serverless-jobs.html)
+- [Unity Catalog](https://docs.databricks.com/en/data-governance/unity-catalog/)
+- [Unity Catalog Volumes](https://docs.databricks.com/en/volumes/)
+- [PySpark on Databricks](https://docs.databricks.com/en/pyspark/)
+
+### Leituras complementares
+
+- [How to Structure Python Projects in 2026 Without Regretting It Later](https://medium.com/algomart/how-to-structure-python-projects-in-2026-without-regretting-it-later-dcf388a108c6)
+- [Modern Python Code Quality Setup: uv, ruff, and mypy](https://simone-carolini.medium.com/modern-python-code-quality-setup-uv-ruff-and-mypy-8038c6549dcc)
+- [How to structure your Data Engineering Projects?](https://medium.com/@jainvaibhav62/how-to-structure-your-data-engineering-projects-314fc4d50fa5)
+- [A Modern Python Toolkit: Pydantic, Ruff, MyPy, and UV](https://dev.to/devasservice/a-modern-python-toolkit-pydantic-ruff-mypy-and-uv-4b2f)
+- [Git project - dab-lakehouse-boilerplate](https://github.com/jojinmp/dab-lakehouse-boilerplate)
