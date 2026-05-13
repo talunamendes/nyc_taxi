@@ -18,7 +18,7 @@ Use the scripts in `docs/sql`:
 
 Before running each script, replace `<CATALOG_NAME>` with your personal catalog, for example:
 
-- `nyc_taxi_dev_<your_name>`
+- `nyc_taxi_dev`
 
 Run scripts in Databricks SQL Editor (or notebook SQL cells) in order: `001`, `002`, then `003`.
 
@@ -36,14 +36,14 @@ Deploy to `dev` target, overriding variables:
 
 ```bash
 make dab-deploy ENV=dev \
-  CATALOG=nyc_taxi_dev_<your_name>
+  CATALOG=nyc_taxi_dev
 ```
 
 Or directly with explicit variables:
 
 ```bash
 databricks bundle deploy -t dev \
-  --var="catalog=nyc_taxi_dev_<your_name>" \
+  --var="catalog=nyc_taxi_dev" \
   --var="wheel_file=<nome_do_arquivo_whl_em_dist>"
 ```
 
@@ -53,7 +53,7 @@ Use Makefile:
 
 ```bash
 make dab-run ENV=dev WORKFLOW=nyc_taxi_job \
-  CATALOG=nyc_taxi_dev_<your_name>
+  CATALOG=nyc_taxi_dev
 ```
 
 ## Notes
