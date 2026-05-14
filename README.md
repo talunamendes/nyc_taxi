@@ -1,10 +1,12 @@
 # NYC Taxi
 
+Pipeline Lakehouse em Databricks para ingestao e processamento de dados de corridas de taxi, com arquitetura em camadas (`landing`, `bronze`, `silver`, `gold`).
+
 ## Arquitetura
 
 ```mermaid
 flowchart LR
-  A[NYC TLC Trip Data CDN<br/>Yellow Taxi 2023-01..05] --> B[Landing<br/>UC Volume]
+  A[NYC TLC Trip Data CDN<br/>Yellow Taxi Parquet] --> B[Landing<br/>UC Volume]
   B --> C[Bronze]
   C --> D[Silver]
   D --> E[Gold / Camada de Consumo]
@@ -18,10 +20,17 @@ flowchart LR
 
 ## TL;DR
 
-- Esta solução ingere dados de corridas Yellow Taxi (jan-mai/2023) para um lakehouse em Databricks.
+- Este repositorio implementa um pipeline de dados em Databricks para o dataset de Yellow Taxi.
 - O pipeline é organizado em camadas (`landing`, `bronze`, `silver`, `gold`) e empacotado como wheel Python.
 - A orquestração/deploy usa Declarative Automation Bundles (DAB) (`databricks bundle`) com execução em Serverless Jobs.
 - O projeto inclui scripts DDL para bootstrap de catálogo, schemas e volumes no Unity Catalog.
+
+## Status das camadas
+
+- `landing`: implementada (download, idempotencia basica, metadados e modo discovery).
+- `bronze`: implementada (Auto Loader -> Delta com checkpoint e schema evolution).
+- `silver`: placeholder inicial.
+- `gold`: placeholder inicial.
 
 ## Quickstart (Databricks Free Edition)
 
@@ -42,25 +51,21 @@ Se precisar criar objetos do Unity Catalog antes do deploy, use:
 Guia detalhado: `docs/FREE_EDITION_SETUP.md`.
 Documentação oficial: [Databricks Declarative Automation Bundles](https://docs.databricks.com/en/dev-tools/bundles/).
 
-## Resposta Direta às Perguntas do Case
+## Execucao util (targets Makefile)
 
-### 1) Solução de ingestão e disponibilização para usuário final
+- Instalar dependencias locais: `make install`
+- Rodar testes unitarios: `make test`
+- Rodar testes da landing: `make test-landing`
+- Rodar testes da bronze: `make test-bronze`
+- Validar bundle: `make dab-validate ENV=dev CATALOG=nyc_taxi_dev`
+- Deploy de bundle: `make dab-deploy ENV=dev CATALOG=nyc_taxi_dev`
+- Executar workflow: `make dab-run ENV=dev WORKFLOW=nyc_taxi_job CATALOG=nyc_taxi_dev`
 
-- **Ingestão**: implementada em `src/nyc_taxi/lakehouse/landing/main.py` (download, idempotência e metadados).
-- **Uso de PySpark**: previsto no pipeline lakehouse e estrutura de execução em Databricks Jobs.
-- **Metadados**: Unity Catalog (catálogo, schemas e volumes).
-- **Camada de consumo**: prevista na camada `gold` (`src/nyc_taxi/lakehouse/gold/main.py`).
-- **Modelagem inicial de tabelas/objetos**: bootstrap com DDL em `docs/sql`.
-- **Colunas obrigatórias na camada de consumo**:
-  - `VendorID`
-  - `passenger_count`
-  - `total_amount`
-  - `tpep_pickup_datetime`
-  - `tpep_dropoff_datetime`
+## Consultas analiticas de referencia (camada gold)
 
-### 2) Perguntas analíticas do case (SQL de referência)
+As consultas abaixo sao exemplos de consumo quando a camada `gold` estiver publicada.
 
-**Pergunta A**: média de `total_amount` por mês (frota Yellow).
+**Pergunta A**: media de `total_amount` por mes.
 
 ```sql
 SELECT
@@ -71,15 +76,15 @@ GROUP BY 1
 ORDER BY 1;
 ```
 
-**Pergunta B**: média de `passenger_count` por hora do dia em maio/2023.
+**Pergunta B**: media de `passenger_count` por hora do dia em um periodo.
 
 ```sql
 SELECT
   hour(tpep_pickup_datetime) AS hour_of_day,
   AVG(passenger_count) AS avg_passenger_count
 FROM <catalog>.gold.<tabela_consumo>
-WHERE tpep_pickup_datetime >= TIMESTAMP('2023-05-01')
-  AND tpep_pickup_datetime < TIMESTAMP('2023-06-01')
+WHERE tpep_pickup_datetime >= TIMESTAMP('<inicio>')
+  AND tpep_pickup_datetime < TIMESTAMP('<fim>')
 GROUP BY 1
 ORDER BY 1;
 ```
@@ -93,7 +98,7 @@ ORDER BY 1;
 
 ## Estrutura do Repositório
 
-Esta organização segue a estrutura base gerada pelo template `default-python` do Declarative Automation Bundles (DAB), com extensões específicas para o case.
+Esta organizacao segue a estrutura base gerada pelo template `default-python` do Declarative Automation Bundles (DAB), com extensoes para um pipeline Lakehouse por camadas.
 
 - `src/nyc_taxi/`: código fonte do pipeline
 - `resources/`: definição de workflow/job com Declarative Automation Bundles (DAB)

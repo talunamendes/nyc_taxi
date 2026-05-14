@@ -17,7 +17,7 @@ Precisamos definir política de erro para o job:
 A task continuará o processamento mesmo que um mês falhe; o job só retorna erro (`exit code 1`) quando **todos** os meses falham. Se ao menos um mês for `ingested` ou `skipped`, retorna sucesso (`exit code 0`) com sumário explícito.
 
 **Por que essa escolha?**  
-Porque maximiza disponibilidade de dados parciais úteis e reduz reprocessamento desnecessário em cenários de falha intermitente por partição.
+Porque maximiza disponibilidade de dados parciais úteis e reduz reprocessamento desnecessário em cenários de falha intermitente por partition.
 
 ## Consequences
 
@@ -57,4 +57,4 @@ Critérios de validação contínua:
 
 - quando contratos downstream exigirem completude total por janela de execução;
 - quando SLAs de qualidade não aceitarem entrega parcial;
-- quando houver mecanismo robusto de retries por partição que torne fail-fast mais seguro.
+- quando houver mecanismo robusto de retries por partition que torne fail-fast mais seguro.

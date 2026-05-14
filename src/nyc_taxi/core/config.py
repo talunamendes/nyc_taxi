@@ -1,14 +1,19 @@
 """
 Configurações centralizadas do pipeline.
 
-Princípio: nenhum valor mágico hardcoded nos notebooks. Tudo vem daqui ou de
-parâmetros do job. Permite trocar entre dev/stg/prd alterando apenas env vars.
+Princípio: configuração é o que fica estável entre execuções (catalog,
+schemas, URL template, thresholds de DQ). Parâmetros que mudam a cada
+execução (janela de ingestão, ano, meses) NÃO são configuração — vêm via
+CLI do job. Por isso `target_year` e `target_months` não estão aqui.
+
+Permite trocar entre dev/stg/prd alterando apenas env vars ou parâmetros
+do job, sem editar código.
 """
 
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 
@@ -31,7 +36,7 @@ class PipelineConfig:
     bronze_schema: str = "bronze"
     silver_schema: str = "silver"
     gold_schema: str = "gold"
-    #obs_schema: str = "observability"
+    # obs_schema: str = "observability"
 
     # === Volumes (UC Volume substitui S3 no Free Edition) ===
     landing_volume: str = "nyc_taxi_raw"
@@ -45,16 +50,17 @@ class PipelineConfig:
     gold_monthly_table: str = "fct_yellow_trips_monthly"
     gold_hourly_may_table: str = "fct_yellow_trips_hourly_may2023"
 
-    # === Janela de processamento ===
-    target_year: int = 2023
-    target_months: tuple[int, ...] = field(default_factory=lambda: (1,2,3,4,5,))
-
     # === Fonte externa ===
     tlc_url_template: str = (
         "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{year}-{month:02d}.parquet"
     )
     download_timeout_seconds: int = 300
     download_retry_attempts: int = 3
+
+    # === Atraso esperado da publicação do TLC ===
+    # TLC publica dados com ~30–45 dias de atraso. O modo --discover usa
+    # essa margem para evitar tentativas de baixar meses ainda inexistentes.
+    tlc_publication_lag_months: int = 2
 
     # === DQ thresholds ===
     dq_min_rows_per_month: int = 1_500_000

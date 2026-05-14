@@ -1,23 +1,37 @@
-# Silver Layer - Analise de Implementacao
+# Silver Layer
 
-## Status atual
+## Papel da camada
 
-Camada ainda em estado inicial (placeholder). O entrypoint atual (`src/nyc_taxi/lakehouse/silver/main.py`) apenas imprime uma mensagem e nao implementa curadoria de dados.
+A camada `silver` deve concentrar curadoria e qualidade dos dados antes da
+modelagem analitica na gold.
 
-## Escopo previsto para a analise desta camada
+Arquivo de referencia: `src/nyc_taxi/lakehouse/silver/main.py`.
 
-Quando implementada, esta analise deve cobrir:
+## Implementacao atual
 
-1. Regras de limpeza e padronizacao.
-2. Tratamento de registros invalidos (quarantine/dead-letter).
-3. Dedupe e reconciliacao de dados.
-4. Estrategia de particionamento e otimizacao de Delta.
-5. Contratos de qualidade para consumo analitico.
-6. Impacto das regras de negocio em downstream.
+Estado atual: placeholder.
 
-## Refactorings alvo (apos implementacao inicial)
+O modulo possui apenas:
 
-- Externalizar regras de negocio em componentes testaveis.
-- Versionar regras de validacao para auditabilidade.
-- Criar testes de regressao para cenarios de qualidade.
-- Definir politica clara de quarantine e reprocessamento.
+- funcao `main()`;
+- `print("Hello, Silver Layer!")`;
+- sem leitura de bronze;
+- sem escrita em tabela silver;
+- sem regras de qualidade, dedupe ou normalizacao.
+
+## Entradas e saidas
+
+Atualmente nao ha contrato de entrada/saida de dados para esta camada.
+
+## Riscos tecnicos atuais
+
+- Pipeline para na bronze para qualquer caso de uso analitico.
+- Regras de qualidade ficam indefinidas ou distribuidas em camadas erradas.
+- Atrasa definicao de contratos semanticos e de monitoracao.
+
+## Proximos passos sugeridos
+
+- Definir tabela(s) silver e regras minimas de qualidade.
+- Implementar leitura incremental da bronze (ex.: CDF ou watermark por data).
+- Introduzir tratamento de registros invalidos (quarantine).
+- Cobrir regras com testes automatizados.

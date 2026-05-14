@@ -62,6 +62,8 @@ class TestLandingMain(unittest.TestCase):
             return SimpleNamespace(
                 target_year=2023,
                 target_months="1,2,3",
+                discover=False,
+                discover_from=None,
                 catalog="nyc_taxi_dev",
                 environment="dev",
             )
@@ -102,6 +104,8 @@ class TestLandingMain(unittest.TestCase):
             return SimpleNamespace(
                 target_year=2023,
                 target_months="4,5",
+                discover=False,
+                discover_from=None,
                 catalog="nyc_taxi_dev",
                 environment="dev",
             )
@@ -129,6 +133,44 @@ class TestLandingMain(unittest.TestCase):
         self.assertEqual(
             captured.getvalue().strip(),
             '{"ingested": 0, "skipped": 0, "failed": 2}',
+        )
+
+    def test_main_discover_returns_zero_when_target_window_is_empty(self) -> None:
+        def fake_parse_args(_argv: Any) -> SimpleNamespace:
+            return SimpleNamespace(
+                target_year=None,
+                target_months=None,
+                discover=True,
+                discover_from="2023-01",
+                catalog="nyc_taxi_dev",
+                environment="dev",
+            )
+
+        def fake_get_spark_and_dbutils() -> tuple[object, object]:
+            return object(), object()
+
+        with (
+            patch("nyc_taxi.lakehouse.landing.main._parse_args", fake_parse_args),
+            patch(
+                "nyc_taxi.lakehouse.landing.main._get_spark_and_dbutils",
+                fake_get_spark_and_dbutils,
+            ),
+            patch(
+                "nyc_taxi.lakehouse.landing.main._resolve_target_window",
+                return_value=[],
+            ),
+            patch(
+                "nyc_taxi.lakehouse.landing.main.ingest_month",
+                side_effect=AssertionError("ingest_month should not be called"),
+            ),
+            redirect_stdout(io.StringIO()) as captured,
+        ):
+            exit_code = landing_main.main([])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            captured.getvalue().strip(),
+            '{"ingested": 0, "skipped": 0, "failed": 0, "nothing_to_do": true}',
         )
 
 

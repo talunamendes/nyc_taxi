@@ -1,23 +1,37 @@
-# Gold Layer - Analise de Implementacao
+# Gold Layer
 
-## Status atual
+## Papel da camada
 
-Camada ainda em estado inicial (placeholder). O entrypoint atual (`src/nyc_taxi/lakehouse/gold/main.py`) apenas imprime uma mensagem e nao implementa modelagem de consumo.
+A camada `gold` deve publicar datasets de consumo (BI, analise ad hoc e metricas
+de negocio) em formato estavel para usuarios finais.
 
-## Escopo previsto para a analise desta camada
+Arquivo de referencia: `src/nyc_taxi/lakehouse/gold/main.py`.
 
-Quando implementada, esta analise deve cobrir:
+## Implementacao atual
 
-1. Modelagem de tabelas/fatos para analytics.
-2. Definicao de metricas e agregacoes de negocio.
-3. Granularidade e recorte temporal de cada dataset.
-4. Estrategia de refresh (batch/incremental).
-5. Requisitos de SLA e frescor para consumo.
-6. Governanca semantica (nomenclatura e dicionario de dados).
+Estado atual: placeholder.
 
-## Refactorings alvo (apos implementacao inicial)
+O modulo possui apenas:
 
-- Separar camada semantica de camada fisica de persistencia.
-- Adicionar testes de metricas com datasets de controle.
-- Padronizar contratos de consumo para BI e SQL ad hoc.
-- Criar monitoracao de drift de metricas criticas.
+- funcao `main()`;
+- `print("Hello, Gold Layer!")`;
+- sem leitura da silver;
+- sem tabelas agregadas;
+- sem definicao de metricas.
+
+## Entradas e saidas
+
+Atualmente nao ha contrato de entrada/saida de dados para esta camada.
+
+## Riscos tecnicos atuais
+
+- Nao existe camada de consumo pronta para BI.
+- Metricas de negocio nao estao centralizadas nem versionadas.
+- SLA de frescor e de consistencia ainda nao pode ser medido.
+
+## Proximos passos sugeridos
+
+- Definir primeiro conjunto de tabelas gold (fato + dimensoes essenciais).
+- Formalizar metricas de negocio e suas regras de calculo.
+- Implementar estrategia de refresh (batch ou incremental).
+- Criar testes de regressao para metricas criticas.

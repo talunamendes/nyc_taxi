@@ -27,6 +27,33 @@ variables:
     description: Wheel filename generated under dist/ and uploaded with bundle files
     default: CHANGE_ME_WHEEL_FILE.whl
 
+  # Landing — modo explícito (default do schedule, ver ADR-009).
+  # Override exemplo para ingestão de ano diferente:
+  #   databricks bundle deploy -t dev --var="target_year=2024" --var="target_months=1,2,3"
+  target_year:
+    description: Year to ingest in the scheduled landing run
+    default: "2023"
+  target_months:
+    description: Comma-separated months to ingest in the scheduled landing run
+    default: "1,2,3,4,5"
+
+  # Landing — discovery (modo opcional, NÃO usado pelo schedule).
+  # Mantido para execução manual via `databricks bundle run` ou
+  # override em backfill futuro. Não tem efeito no schedule diário.
+  # Exemplo de uso manual:
+  #   databricks jobs run-now --job-id <id> \
+  #     --python-named-params '{"discover":"true","discover-from":"2023-01"}'
+  discover_from:
+    description: >
+      Initial month (YYYY-MM) for landing discovery mode, used only when
+      running landing manually with --discover. The scheduled job uses
+      explicit mode and ignores this variable.
+    default: "2023-01"
+
+# Three targets aligned with PipelineConfig.environment (dev/stg/prd).
+# - dev: development mode (schedules paused automatically, resources prefixed).
+# - stg: pre-production validation.
+# - prd: production mode (schedules active).
 targets:
   dev:
     # The default target uses 'mode: development' to create a development copy.
@@ -40,7 +67,12 @@ targets:
       # This keeps the repo portable for any contributor.
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
 
-  prod:
+  stg:
+    mode: production
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+
+  prd:
     mode: production
     workspace:
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}

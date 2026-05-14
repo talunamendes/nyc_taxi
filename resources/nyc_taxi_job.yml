@@ -1,39 +1,91 @@
-# A sample job for nyc_taxi.
+# nyc_taxi_job — pipeline mensal NYC Yellow Taxi (landing -> bronze -> silver -> gold)
+#
+# Decisões refletidas neste YAML:
+#
+# - Schedule cron mensal no dia 02 às 05:00 (America/Sao_Paulo): alinhado
+#   com o ciclo de publicação do TLC (~30-45 dias de atraso). Rodar dia 02
+#   dá margem para o TLC publicar o mês anterior.
+#
+# - Landing roda em modo EXPLÍCITO por default (ver ADR-009, revisão de
+#   2026-05-14): valores vêm das variables `target_year` e `target_months`
+#   do bundle, com defaults do case (2023, Jan-Mai). Discovery continua
+#   suportado via override manual no momento da execução, mas não é o
+#   modo do schedule.
+#
+# - Parâmetros vão dentro de `python_wheel_task.parameters` para virarem
+#   sys.argv do entry point (e serem lidos pelo argparse). Parâmetros no
+#   nível do job NÃO funcionariam — viram variáveis de ambiente, não argv.
+#
+# - Bronze tem `max_retries: 2` por design — schema evolution do Auto Loader
+#   propositalmente termina o stream com UnknownFieldException na primeira
+#   detecção de coluna nova (ADR-007). Sem retry, "evolução automática" não
+#   se materializa.
+#
+# - Landing tem `max_retries: 1` para resiliência a falha transitória do CDN
+#   do TLC, complementando o retry interno do download_with_retry.
+#
+# - `--environment` é derivado do bundle target (dev/stg/prd) via ${bundle.target}.
 
 resources:
   jobs:
     nyc_taxi_job:
       name: nyc_taxi_job
 
-      trigger:
-        # Run this job every day, exactly one day from the last run; see https://docs.databricks.com/api/workspace/jobs/create#trigger
-        periodic:
-          interval: 1
-          unit: DAYS
+      schedule:
+        # Roda 1x ao mês no dia 02 às 05:00 da manhã (horário de São Paulo).
+        # Quartz cron: segundo minuto hora dia-do-mês mês dia-da-semana.
+        # `0 0 5 2 * ?` = às 05:00:00, no dia 02, todo mês, qualquer dia da semana.
+        quartz_cron_expression: "0 0 5 2 * ?"
+        timezone_id: "America/Sao_Paulo"
+        # UNPAUSED explícito: em `mode: development` do bundle, schedules são
+        # pausados automaticamente; em `mode: production`, ficam ativos.
+        # Declarar explicitamente torna a intenção clara em ambos os modos.
+        pause_status: UNPAUSED
 
-      #email_notifications:
-      #  on_failure:
-      #    - your_email@example.com
-
-      parameters:
-        - name: catalog
-          default: ${var.catalog}
+      # email_notifications:
+      #   on_failure:
+      #     - your_email@example.com
 
       tasks:
+
+        # ---------------------------------------------------------------------
+        # 01 — Landing: baixa Parquets do TLC para UC Volume (modo explícito)
+        # ---------------------------------------------------------------------
         - task_key: landing
           environment_key: default
+          max_retries: 1
+          min_retry_interval_millis: 60000
           python_wheel_task:
             package_name: nyc_taxi
             entry_point: landing_layer
+            parameters:
+              - "--target-year=${var.target_year}"
+              - "--target-months=${var.target_months}"
+              - "--catalog=${var.catalog}"
+              - "--environment=${bundle.target}"
 
+        # ---------------------------------------------------------------------
+        # 02 — Bronze: Auto Loader -> Delta append-only
+        # ---------------------------------------------------------------------
+        # max_retries=2 é obrigatório aqui (ver ADR-007): schema evolution do
+        # Auto Loader termina o stream com UnknownFieldException quando detecta
+        # coluna nova. Segunda execução já enxerga schema atualizado e prossegue.
         - task_key: bronze
           environment_key: default
+          max_retries: 2
+          min_retry_interval_millis: 30000
           depends_on:
             - task_key: landing
           python_wheel_task:
             package_name: nyc_taxi
             entry_point: bronze_layer
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--environment=${bundle.target}"
 
+        # ---------------------------------------------------------------------
+        # 03 — Silver: limpeza, dedup, contrato de qualidade
+        # ---------------------------------------------------------------------
         - task_key: silver
           environment_key: default
           depends_on:
@@ -41,7 +93,13 @@ resources:
           python_wheel_task:
             package_name: nyc_taxi
             entry_point: silver_layer
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--environment=${bundle.target}"
 
+        # ---------------------------------------------------------------------
+        # 04 — Gold: agregados para consumo analítico
+        # ---------------------------------------------------------------------
         - task_key: gold
           environment_key: default
           depends_on:
@@ -49,12 +107,17 @@ resources:
           python_wheel_task:
             package_name: nyc_taxi
             entry_point: gold_layer
+            parameters:
+              - "--catalog=${var.catalog}"
+              - "--environment=${bundle.target}"
+
       environments:
         - environment_key: default
           spec:
             environment_version: "2"
-            # For serverless jobs, Python dependencies must be declared in environment.
+            # Serverless jobs: Python dependencies declaradas no environment.
             dependencies:
               - ${workspace.file_path}/dist/${var.wheel_file}
+
       queue:
         enabled: true
