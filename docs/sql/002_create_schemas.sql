@@ -1,7 +1,6 @@
 -- DDL bootstrap script: create schemas
--- Replace <CATALOG_NAME> before execution.
 
-CREATE SCHEMA IF NOT EXISTS <CATALOG_NAME>.landing;
-CREATE SCHEMA IF NOT EXISTS <CATALOG_NAME>.bronze;
-CREATE SCHEMA IF NOT EXISTS <CATALOG_NAME>.silver;
-CREATE SCHEMA IF NOT EXISTS <CATALOG_NAME>.gold;
+CREATE SCHEMA IF NOT EXISTS nyc_taxi_dev.landing;
+CREATE SCHEMA IF NOT EXISTS nyc_taxi_dev.bronze;
+CREATE SCHEMA IF NOT EXISTS nyc_taxi_dev.silver;
+CREATE SCHEMA IF NOT EXISTS nyc_taxi_dev.gold;

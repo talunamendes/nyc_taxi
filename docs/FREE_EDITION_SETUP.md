@@ -16,10 +16,6 @@ Use the scripts in `docs/sql`:
 - `docs/sql/002_create_schemas.sql`
 - `docs/sql/003_create_volumes.sql`
 
-Before running each script, replace `<CATALOG_NAME>` with your personal catalog, for example:
-
-- `nyc_taxi_dev`
-
 Run scripts in Databricks SQL Editor (or notebook SQL cells) in order: `001`, `002`, then `003`.
 
 If your workspace blocks catalog creation permissions, skip `001` and use an existing catalog name in all commands.
