@@ -30,6 +30,10 @@ Ordem sugerida de leitura por **fase natural de decisão/implementação** (não
 - [ADR-013: Data model da Silver — uma tabela por tipo de taxi](./ADR-013-silver-data-model-per-taxi.md)
 - [ADR-014: Gold Data Model — uma view única de consumo (sem fatos pré-agregados)](./ADR-014-gold-data-model-per-question.md)
 
+## Fase 4 — Governança e Qualidade
+
+- [ADR-015: Governança e Qualidade de Dados — Validação Hardcoded como MVP](./ADR-015-governanca-qualidade-dados.md)
+
 ## Como revisar um ADR
 
 Cada ADR deve responder explicitamente:
