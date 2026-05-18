@@ -1,79 +1,140 @@
-# NYC Taxi
+# NYC Taxi — Pipeline Lakehouse no Databricks
 
-Pipeline Lakehouse em Databricks para ingestao e processamento de dados de corridas de taxi, com arquitetura em camadas (`landing`, `bronze`, `silver`, `gold`).
+> **Disclaimer:** Este projeto foi desenvolvido com auxílio de ferramentas de IA — [Claude](https://claude.ai) (Anthropic) e [Cursor](https://www.cursor.com). O código, as decisões arquiteturais e a documentação foram revisados e validados pelo autor.
+
+Pipeline de dados em camadas para ingestão e processamento do dataset **NYC TLC Trip Data** (Yellow e Green Taxi), implementado sobre Databricks com arquitetura Lakehouse.
+
+---
+
+## Índice
+
+- [Overview](#overview)
+- [Arquitetura](#arquitetura)
+- [Setup](#setup)
+- [Pontos de destaque](#pontos-de-destaque)
+- [Possíveis melhorias](#possíveis-melhorias)
+- [Referências](#referências)
+
+---
+
+## Overview
+
+Este repositório implementa um pipeline de dados completo para o dataset público do [NYC Taxi & Limousine Commission (TLC)](https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page), cobrindo o fluxo de ponta a ponta: ingestão de arquivos Parquet externos, preservação do dado bruto, curadoria progressiva e publicação para consumo analítico.
+
+A solução é inteiramente **automatizada e parametrizável** — o pipeline roda do zero com três comandos `make`, sem intervenção manual entre camadas. Apesar de utilizar Databricks como plataforma de execução, as decisões arquiteturais foram tomadas com foco em escalabilidade, auditabilidade e evolução incremental.
+
+**Dataset**: NYC TLC Yellow Taxi e Green Taxi — arquivos Parquet mensais, distribuídos via CDN pública.
+
+**Período coberto nos testes e análises**: janeiro a maio de 2023.
+
+---
 
 ## Arquitetura
 
+O pipeline adota a **arquitetura Lakehouse em camadas**, combinando a flexibilidade de um Data Lake (armazenamento de baixo custo, dado bruto histórico) com a confiabilidade semântica de um Data Warehouse (tabelas Delta com ACID, schema e SQL).
+
 ```mermaid
 flowchart LR
-  A[NYC TLC Trip Data CDN<br/>Yellow Taxi Parquet] --> B[Landing<br/>UC Volume]
-  B --> C[Bronze]
-  C --> D[Silver]
-  D --> E[Gold / Camada de Consumo]
+  A[NYC TLC Trip Data CDN\nYellow + Green Parquet] --> B[Landing\nUC Volume]
+  B --> C[Bronze\nDelta Table]
+  C --> D[Silver\nDelta Table]
+  D --> E[Gold\nvw_taxi_trips]
 
-  F[Declarative Automation Bundles<br/>validate/deploy/run/destroy] --> G[Databricks Job Serverless]
+  F[DAB\ndatabricks bundle] --> G[Databricks Serverless Job]
   G --> B
   G --> C
   G --> D
   G --> E
 ```
 
-## TL;DR
+### Responsabilidade de cada camada
 
-- Este repositorio implementa um pipeline de dados em Databricks para o dataset de Yellow Taxi.
-- O pipeline é organizado em camadas (`landing`, `bronze`, `silver`, `gold`) e empacotado como wheel Python.
-- A orquestração/deploy usa Declarative Automation Bundles (DAB) (`databricks bundle`) com execução em Serverless Jobs.
-- O projeto inclui scripts DDL para bootstrap de catálogo, schemas e volumes no Unity Catalog.
+| Camada | Objetivo | Tecnologia |
+|--------|----------|------------|
+| **Landing** | Zona de aterrissagem — download idempotente dos arquivos Parquet da CDN do TLC, com isolamento por subpath e política de falha parcial por mês | UC Volume + Python HTTP |
+| **Bronze** | Preservação fiel da fonte com rastreabilidade (`_source_file`, `_ingestion_ts`) — uma tabela Delta por tipo de táxi | Auto Loader + Delta (append-only) |
+| **Silver** | Curadoria, normalização e contrato semântico — uma tabela Delta por tipo de táxi com DDL explícito, DQ inline e MERGE idempotente | PySpark + Delta MERGE |
+| **Gold** | Publicação para consumo analítico — view única `vw_taxi_trips` unindo Yellow e Green com contrato de colunas padronizado | Delta View |
 
-## Status das camadas
+### Stack de infraestrutura
 
-- `landing`: implementada (download, idempotencia basica, metadados e modo discovery).
-- `bronze`: implementada (Auto Loader -> Delta com checkpoint e schema evolution).
-- `silver`: implementada (uma tabela por taxi com DDL explicito, DQ inline e MERGE idempotente).
-- `gold`: implementada (uma unica view `vw_taxi_trips` com as colunas obrigatorias do contrato de consumo; perguntas analiticas respondidas por SQL ad-hoc em `analysis/`).
+| Componente | Papel |
+|------------|-------|
+| Databricks Serverless Jobs | Compute de execução dos jobs — sem gerenciamento de cluster |
+| Unity Catalog | Catálogo, controle de acesso, tags e volumes |
+| Delta Lake | Formato de tabela com ACID, versionamento e schema enforcement |
+| DAB (Declarative Automation Bundles) | CI/CD — build, deploy, run e destroy do pipeline como código |
+| Python Wheel (`nyc_taxi`) | Empacotamento do código como artefato de produção |
 
-## Quickstart (Databricks Free Edition)
+### Decisões arquiteturais (ADRs)
 
-Pré-requisitos: Databricks CLI autenticado (`databricks auth login`) e `uv` instalado.
+As decisões de design estão documentadas em [`docs/adr/`](docs/adr/README.md). Algumas das mais relevantes:
+
+- [ADR-001](docs/adr/ADR-001-escolha-arquitetura-lakehouse.md) — Escolha da arquitetura Lakehouse
+- [ADR-003](docs/adr/ADR-003-serverless-vs-classic-cluster.md) — Serverless Jobs vs. Classic Cluster
+- [ADR-009](docs/adr/ADR-009-bronze-estrategia-ingestao.md) — Auto Loader como estratégia de ingestão Bronze
+- [ADR-013](docs/adr/ADR-013-silver-data-model-per-taxi.md) — Data model da Silver
+- [ADR-014](docs/adr/ADR-014-gold-data-model-per-question.md) — Gold Data Model (view única de consumo)
+- [ADR-015](docs/adr/ADR-015-governanca-qualidade-dados.md) — Governança e Qualidade de Dados
+
+---
+
+## Setup
+
+### Pré-requisitos
+
+- [Databricks CLI](https://docs.databricks.com/en/dev-tools/cli/install.html) instalado e autenticado (`databricks auth login`)
+- [`uv`](https://docs.astral.sh/uv/) instalado
+- Serverless Jobs habilitados no workspace Databricks
+
+### Execução rápida
 
 ```bash
+# 1. Build do wheel Python
 make uv-build
+
+# 2. Deploy do bundle (cria jobs e configura variáveis no workspace)
 make dab-deploy ENV=dev CATALOG=nyc_taxi_dev
+
+# 3. Execução do pipeline completo
 make dab-run ENV=dev WORKFLOW=nyc_taxi_job CATALOG=nyc_taxi_dev
 ```
 
-Se precisar criar objetos do Unity Catalog antes do deploy, use:
+### Bootstrap do Unity Catalog (se necessário)
 
-- `docs/sql/001_create_catalog.sql`
-- `docs/sql/002_create_schemas.sql`
-- `docs/sql/003_create_volumes.sql`
+Execute os scripts DDL em ordem no Databricks SQL Editor:
 
-Guia detalhado: `docs/FREE_EDITION_SETUP.md`.
-Documentação oficial: [Databricks Declarative Automation Bundles](https://docs.databricks.com/en/dev-tools/bundles/).
+```sql
+-- 1. Criar catálogo
+-- docs/sql/001_create_catalog.sql
 
-## Execucao util (targets Makefile)
+-- 2. Criar schemas (landing, bronze, silver, gold)
+-- docs/sql/002_create_schemas.sql
 
-- Instalar dependencias locais: `make install`
-- Rodar testes unitarios: `make test`
-- Rodar testes da landing: `make test-landing`
-- Rodar testes da bronze: `make test-bronze`
-- Rodar testes da silver: `make test-silver`
-- Rodar testes da gold: `make test-gold`
-- Validar bundle: `make dab-validate ENV=dev CATALOG=nyc_taxi_dev`
-- Deploy de bundle: `make dab-deploy ENV=dev CATALOG=nyc_taxi_dev`
-- Executar workflow: `make dab-run ENV=dev WORKFLOW=nyc_taxi_job CATALOG=nyc_taxi_dev`
+-- 3. Criar volumes na landing
+-- docs/sql/003_create_volumes.sql
+```
 
-## Consultas analiticas de referencia (camada gold)
+> Se o workspace não permitir criação de catálogo, pule o script `001` e use um catálogo existente nas variáveis.
 
-A gold publica uma unica view, `vw_taxi_trips`, que une yellow + green
-com alias `lpep_*` -> `tpep_*` e expoe as 5 colunas obrigatorias do
-contrato de consumo (`VendorID`, `passenger_count`, `total_amount`,
-`tpep_pickup_datetime`, `tpep_dropoff_datetime`) + `taxi_type` para
-lineage. SQL completo das perguntas em
-`analysis/perguntas_analiticas.sql`. Justificativa em
-[ADR-014](docs/adr/ADR-014-gold-data-model-per-question.md).
+### Targets Makefile disponíveis
 
-**Pergunta A**: media mensal de `total_amount` (yellow).
+| Comando | Descrição |
+|---------|-----------|
+| `make install` | Instala dependências locais |
+| `make test` | Roda todos os testes unitários |
+| `make test-landing` / `test-bronze` / `test-silver` / `test-gold` | Testes por camada |
+| `make dab-validate ENV=dev CATALOG=...` | Valida o bundle sem fazer deploy |
+| `make dab-deploy ENV=dev CATALOG=...` | Deploy do bundle no workspace |
+| `make dab-run ENV=dev WORKFLOW=... CATALOG=...` | Executa o workflow |
+
+Guia completo: [`docs/setup/FREE_EDITION_SETUP.md`](docs/setup/FREE_EDITION_SETUP.md).
+
+### Consultas analíticas de referência
+
+A Gold expõe a view `vw_taxi_trips` com colunas padronizadas (`VendorID`, `passenger_count`, `total_amount`, `tpep_pickup_datetime`, `tpep_dropoff_datetime`, `taxi_type`). Exemplos de queries em [`analysis/perguntas_analiticas.sql`](analysis/perguntas_analiticas.sql).
+
+**Média mensal de `total_amount` (Yellow Taxi):**
 
 ```sql
 SELECT
@@ -86,8 +147,7 @@ GROUP BY 1
 ORDER BY 1;
 ```
 
-**Pergunta B**: media de `passenger_count` por hora do dia em mai/2023,
-considerando todos os taxis (yellow + green).
+**Média de `passenger_count` por hora do dia em mai/2023 (Yellow + Green):**
 
 ```sql
 SELECT
@@ -102,39 +162,96 @@ GROUP BY 1
 ORDER BY 1;
 ```
 
-## Artefatos de Decisão e Governança
+---
 
-- **ADRs**: `docs/adr/README.md`
-- **Threat Model**: `docs/threat-model.md`
-- **TCO Model**: `docs/tco-model.md`
-- **Analise por Camada (Landing/Bronze/Silver/Gold)**: `docs/layers/README.md`
+## Pontos de destaque
 
-## Estrutura do Repositório
+### Pipeline completamente idempotente
 
-Esta organizacao segue a estrutura base gerada pelo template `default-python` do Declarative Automation Bundles (DAB), com extensoes para um pipeline Lakehouse por camadas.
+Todas as camadas foram projetadas para serem reexecutadas com segurança: a Landing verifica arquivos já presentes antes de baixar; a Bronze usa Auto Loader com checkpoint independente por tipo de táxi; a Silver usa MERGE com chave composta que impede duplicação lógica. Um reprocessamento não corrompe dados nem gera duplicatas.
 
-- `src/nyc_taxi/`: código fonte do pipeline
-- `resources/`: definição de workflow/job com Declarative Automation Bundles (DAB)
-- `tests/`: testes unitários
-- `docs/adr/`: registros de decisões arquiteturais
-- `docs/layers/`: analises tecnicas por camada do lakehouse
-- `docs/sql/`: DDL de bootstrap
+### CI/CD como código com DAB
 
-## Referências Técnicas
+O deploy, parametrização e execução do pipeline são inteiramente gerenciados via [Declarative Automation Bundles](https://docs.databricks.com/en/dev-tools/bundles/) — sem hardcode de workspace host, user path ou `cluster_id`. O bundle é versionado no repositório e promovido por ambiente via variáveis (`catalog`, `wheel_file`).
+
+### Qualidade de dados inline na Silver
+
+As regras de DQ estão ancoradas nos [data dictionaries oficiais do TLC](https://www.nyc.gov/assets/tlc/downloads/pdf/data_dictionary_trip_records_yellow.pdf) e são testadas no CI via `test_enum_lists_match_data_dictionary`. Thresholds de volume e taxa de rejeição são configuráveis por `PipelineConfig` (`dq_max_rejection_rate`, `dq_min_rows_per_month`).
+
+### Governança via Unity Catalog
+
+Todas as tabelas Silver possuem Unity Catalog tags (`layer`, `domain`, `taxi_type`, `criticality`, `pii`). O schema é formalizado via DDL explícito (`CREATE TABLE IF NOT EXISTS` com `_SILVER_COLUMN_TYPES`) — contrato de consumo auditável via `DESCRIBE EXTENDED`.
+
+### Empacotamento como Python Wheel
+
+O código de produção é empacotado como wheel com `uv build` e distribuído como artefato versionado no job. Isso garante isolamento de dependências, reprodutibilidade entre ambientes e compatibilidade com o modelo de execução Serverless do Databricks.
+
+### ADRs como documentação de raciocínio
+
+O projeto mantém 15 Architectural Decision Records documentando o *porquê* de cada escolha técnica — incluindo alternativas avaliadas, trade-offs aceitos e gatilhos para revisão. Ver [`docs/adr/`](docs/adr/README.md).
+
+---
+
+## Possíveis melhorias
+
+As melhorias abaixo foram documentadas nas ADRs como próximos passos naturais, priorizados para quando o pipeline evoluir de MVP para produção:
+
+### Qualidade e governança de dados
+
+- **Databricks Labs DQX** — substituir o `where(_validation_expression(...))` atual por DQX para separar `valid_df` de `invalid_df` com rastreabilidade da regra de rejeição por registro e publicação de métricas estruturadas em tabela de observabilidade.
+- **datacontract CLI** — formalizar o contrato de schema de cada camada em `datacontract.yaml` versionado no repositório, com validação automática no CI contra o Unity Catalog para detectar drift de schema sem intervenção humana.
+- **Tabela de quarentena observável** — materializar registros rejeitados na Silver em `silver_quarantine_table_fqn_for(taxi_type)` (já previsto no `PipelineConfig`), eliminando o drop silencioso atual.
+
+### Observabilidade
+
+- **Métricas de DQ como tabela** — gravar métricas de qualidade por execução (taxa de rejeição, contagem de erros por regra e período) em `observability.dq_metrics` no Unity Catalog, permitindo alertas por threshold e dashboards de SLA.
+- **Alertas de pipeline** — integrar notificações de falha e drift de volume ao sistema de alertas do Databricks Jobs.
+
+### Infraestrutura e escalabilidade
+
+- **Ingestão incremental na Landing** — implementar estratégia de janela temporal dinâmica baseada no watermark da Bronze, eliminando a necessidade de parametrizar datas manualmente.
+- **Schema drift automático** — adicionar validação automática de que o schema entregue pela Bronze corresponde ao esperado pela Silver, detectando drift antes do MERGE.
+- **Suporte a mais tipos de táxi** — o pipeline já suporta Yellow e Green; estender para FHV e HVFHV requereria apenas novos `PipelineConfig` e DDLs Silver sem redesign estrutural.
+
+### Especificações e documentação de produto
+
+- **Specs por camada** — estruturar especificações funcionais formais para cada camada do pipeline (Landing, Bronze, Silver, Gold) como arquivos `spec.md` versionados no repositório, descrevendo entradas esperadas, contratos de saída, comportamento em casos de erro e critérios de aceitação. Specs servem como referência única para desenvolvimento, revisão e onboarding — eliminando a ambiguidade entre o que o código *faz* e o que ele *deveria* fazer.
+
+### Testes e qualidade de código
+
+- **Testes de integração entre camadas** — adicionar testes de fronteira (Bronze → Silver, Silver → Gold) para detectar regressões de contrato sem necessidade de execução do pipeline completo.
+- **Cobertura de testes da Gold** — a camada Gold possui cobertura de testes mínima; ampliar cobertura da lógica de alias `lpep_*` → `tpep_*` e do contrato de colunas da view.
+
+---
+
+## Referências
 
 ### Databricks (documentação oficial)
 
 - [Databricks Declarative Automation Bundles (DAB)](https://docs.databricks.com/en/dev-tools/bundles/)
 - [Databricks Jobs](https://docs.databricks.com/en/jobs/)
-- [Serverless compute for workflows (Jobs)](https://docs.databricks.com/en/jobs/run-serverless-jobs.html)
+- [Serverless compute for workflows](https://docs.databricks.com/en/jobs/run-serverless-jobs.html)
 - [Unity Catalog](https://docs.databricks.com/en/data-governance/unity-catalog/)
 - [Unity Catalog Volumes](https://docs.databricks.com/en/volumes/)
-- [PySpark on Databricks](https://docs.databricks.com/en/pyspark/)
+- [Auto Loader](https://docs.databricks.com/en/ingestion/cloud-object-storage/auto-loader/index.html)
+- [Delta Lake](https://docs.delta.io/latest/index.html)
 
-### Leituras complementares
+### Dataset
 
-- [How to Structure Python Projects in 2026 Without Regretting It Later](https://medium.com/algomart/how-to-structure-python-projects-in-2026-without-regretting-it-later-dcf388a108c6)
+- [NYC TLC Trip Record Data](https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page)
+- [Yellow Taxi Data Dictionary](https://www.nyc.gov/assets/tlc/downloads/pdf/data_dictionary_trip_records_yellow.pdf)
+- [Green Taxi Data Dictionary](https://www.nyc.gov/assets/tlc/downloads/pdf/data_dictionary_trip_records_green.pdf)
+
+### Ferramentas e bibliotecas
+
+- [Databricks Labs DQX](https://databrickslabs.github.io/dqx/) — framework de qualidade de dados para Databricks
+- [datacontract CLI](https://datacontract.com/) — contratos de dados como código
+- [uv — Python package manager](https://docs.astral.sh/uv/)
+- [dab-lakehouse-boilerplate](https://github.com/jojinmp/dab-lakehouse-boilerplate) — template de referência DAB
+
+### Leitura complementar
+
+- Kleppmann, Martin. *Designing Data-Intensive Applications* (2015)
+- Gorelik, Alex. *The Enterprise Big Data Lake* (2019)
+- [How to Structure Python Projects in 2026](https://medium.com/algomart/how-to-structure-python-projects-in-2026-without-regretting-it-later-dcf388a108c6)
 - [Modern Python Code Quality Setup: uv, ruff, and mypy](https://simone-carolini.medium.com/modern-python-code-quality-setup-uv-ruff-and-mypy-8038c6549dcc)
-- [How to structure your Data Engineering Projects?](https://medium.com/@jainvaibhav62/how-to-structure-your-data-engineering-projects-314fc4d50fa5)
-- [A Modern Python Toolkit: Pydantic, Ruff, MyPy, and UV](https://dev.to/devasservice/a-modern-python-toolkit-pydantic-ruff-mypy-and-uv-4b2f)
-- [Git project - dab-lakehouse-boilerplate](https://github.com/jojinmp/dab-lakehouse-boilerplate)
