@@ -1,4 +1,4 @@
-# ADR-010: Estratégia de organização física por camada (Liquid Clustering a partir da Silver)
+# ADR-012: Estratégia de organização física por camada (Liquid Clustering a partir da Silver)
 
 - Status: Accepted
 - Date: 2026-05-14
@@ -46,7 +46,7 @@ Porque organização física só paga dividendos quando há padrão de **leitura
 ### Negativas (trade-offs)
 
 - **Configuração não-uniforme entre camadas**: requer documentação clara para quem entra no projeto. Cada camada tem TBLPROPERTIES e clustering próprios.
-- **Silver/Gold dependem de reader v2+** (requisito do Liquid Clustering). Bronze não tem esse requisito *vindo do clustering*, mas mantém via `columnMapping.mode = 'name'` (ADR-008), então o piso de versão é o mesmo na prática.
+- **Silver/Gold dependem de reader v2+** (requisito do Liquid Clustering). Bronze não tem esse requisito *vindo do clustering*, mas mantém via `columnMapping.mode = 'name'` (ADR-010), então o piso de versão é o mesmo na prática.
 - **Risco de subdimensionar bronze**: se um dia surgir caso de leitura ad-hoc frequente em bronze (ex: análise forense de qualidade), pode ser necessário adicionar clustering. Custo de adicionar depois: `ALTER TABLE ... CLUSTER BY (...)` + um `OPTIMIZE` — barato e reversível.
 - **Definição de chaves de clustering na silver/gold fica em aberto**: depende do padrão de query real, que só emergirá após uso. Risco mitigado pela natureza metadata-only do `ALTER`.
 

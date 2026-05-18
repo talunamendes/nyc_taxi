@@ -1,4 +1,4 @@
-# ADR-002: Executar ingestão via python_wheel entry point
+# ADR-005: Executar ingestão via python_wheel entry point
 
 - Status: Accepted
 - Date: 2026-05-13

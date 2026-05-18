@@ -1,4 +1,4 @@
-# ADR-007: Auto Loader como estratégia de ingestão Bronze
+# ADR-009: Auto Loader como estratégia de ingestão Bronze
 
 - Status: Accepted
 - Date: 2026-05-14
@@ -36,7 +36,7 @@ Porque Auto Loader resolve **três problemas que estariam no nosso colo** com qu
 ### Negativas (trade-offs)
 
 - Dependência forte do Databricks: Auto Loader não roda fora do ecossistema (não há equivalente OSS). Reduz portabilidade do código se o projeto migrar de plataforma.
-- Curva de aprendizado: opções de `cloudFiles.*` são abundantes e a interação entre `schemaLocation`, `schemaEvolutionMode` e `mergeSchema` no write é sutil — vide ADR-008.
+- Curva de aprendizado: opções de `cloudFiles.*` são abundantes e a interação entre `schemaLocation`, `schemaEvolutionMode` e `mergeSchema` no write é sutil — vide ADR-010.
 - Volumes UC para `_checkpoints` e `_schemas` precisam ser criados antecipadamente; perder esses diretórios significa reprocessar tudo (mas é recuperável e seguro com append-only Delta).
 - Custo de cluster mínimo por execução (mesmo que processe zero arquivo): `trigger(availableNow=True)` ainda precisa iniciar o Spark driver. Para volumes muito baixos com janela de execução rara, pode ser overhead relativo.
 

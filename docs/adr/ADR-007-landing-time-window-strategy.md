@@ -1,4 +1,4 @@
-# ADR-011: Time window strategy e parametrização da Landing
+# ADR-007: Time window strategy e parametrização da Landing
 
 - Status: Accepted
 - Date: 2026-05-14
@@ -133,7 +133,7 @@ TLC publica o mês N até o início do mês N+1. Rodar dia 01 às vezes pega o a
 
 - **`--lookback-months=N`** (janela rolante): "baixar últimos N meses sempre". Faz sentido quando o pipeline virar diário/semanal com janela móvel. Postergado — em pipeline mensal com fonte mensal, discovery já cobre o caso melhor (não re-baixa o que já está lá). Listado como evolução futura em `bronze.md` e `landing.md`.
 - **Discovery com teto explícito (`--discover-max-months`)**: mecanismo de segurança contra erro humano em `--discover-from=2009-01` que faria o job tentar baixar 15 anos. Risco operacional baixo na prática (volume zerado é detectável antes do incidente). Postergado.
-- **Trigger por evento na bronze (file notification mode do Auto Loader)**: aplicável só na bronze, e já coberto pelo ADR-007.
+- **Trigger por evento na bronze (file notification mode do Auto Loader)**: aplicável só na bronze, e já coberto pelo ADR-009.
 
 ## Validation
 

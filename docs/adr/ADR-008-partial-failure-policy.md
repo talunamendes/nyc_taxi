@@ -1,4 +1,4 @@
-# ADR-003: Permitir falha parcial por mês na ingestão
+# ADR-008: Permitir falha parcial por mês na ingestão
 
 - Status: Accepted
 - Date: 2026-05-13

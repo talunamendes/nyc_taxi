@@ -1,4 +1,4 @@
-# ADR-009: Column mapping mode `name` na Bronze
+# ADR-011: Column mapping mode `name` na Bronze
 
 - Status: Accepted
 - Date: 2026-05-14
@@ -17,27 +17,27 @@ Existem três modes:
 2. **`'id'`**: cada coluna recebe ID interno; nome lógico e físico desacoplados via ID.
 3. **`'name'`**: nome lógico e físico desacoplados via mapeamento por nome.
 
-Pelo ADR-008, esperamos schema evolution recorrente. Pelo ADR-010, já dependemos de reader version 2+ por causa do Liquid Clustering — então o trade-off de versão já está pago.
+Pelo ADR-010, esperamos schema evolution recorrente. Pelo ADR-012, já dependemos de reader version 2+ por causa do Liquid Clustering — então o trade-off de versão já está pago.
 
 ## Decision
 
 A bronze usa **`delta.columnMapping.mode = 'name'`** desde a criação da tabela.
 
 **Por que essa escolha?**
-Porque o custo é zero (uma propriedade no `CREATE TABLE`) e o benefício é assimétrico: sem column mapping, qualquer `RENAME COLUMN` ou `DROP COLUMN` futuro exige `OVERWRITE` da tabela inteira, o que em uma bronze com centenas de milhões de linhas é caro e arriscado. Com `name`, essas operações viram metadata-only. Como o ADR-010 já nos obriga a reader version 2+ via Liquid Clustering, não há trade-off adicional de compatibilidade — o "custo" da column mapping já está pago de outra forma. Não habilitar essa flag desde o início é abrir mão de flexibilidade futura sem ganhar nada.
+Porque o custo é zero (uma propriedade no `CREATE TABLE`) e o benefício é assimétrico: sem column mapping, qualquer `RENAME COLUMN` ou `DROP COLUMN` futuro exige `OVERWRITE` da tabela inteira, o que em uma bronze com centenas de milhões de linhas é caro e arriscado. Com `name`, essas operações viram metadata-only. Como o ADR-012 já nos obriga a reader version 2+ via Liquid Clustering, não há trade-off adicional de compatibilidade — o "custo" da column mapping já está pago de outra forma. Não habilitar essa flag desde o início é abrir mão de flexibilidade futura sem ganhar nada.
 
 ## Consequences
 
 ### Positivas
 
 - `ALTER TABLE ... RENAME COLUMN antigo TO novo` vira metadata-only — útil se descobrirmos que `_source_year` deveria ter sido `_partition_year`, ou se TLC renomear coluna entre publicações.
-- `ALTER TABLE ... DROP COLUMN` também metadata-only — possibilita remover colunas obsoletas sem rewrite. Útil se uma coluna fictícia foi adicionada via permissive schema evolution (ADR-008) e precisamos limpar.
+- `ALTER TABLE ... DROP COLUMN` também metadata-only — possibilita remover colunas obsoletas sem rewrite. Útil se uma coluna fictícia foi adicionada via permissive schema evolution (ADR-010) e precisamos limpar.
 - Suporte a nomes não-padrão se algum dia for necessário (improvável neste case, mas barato).
 - Time travel funciona consistentemente após rename/drop — Delta resolve via mapping, não por nome literal no histórico.
 
 ### Negativas (trade-offs)
 
-- **Reader version 2 obrigatória**: leitores Delta antigos não conseguem ler. Já é requisito do Liquid Clustering (ADR-010), então custo marginal aqui é zero — mas vale registrar que essa dependência se intensifica.
+- **Reader version 2 obrigatória**: leitores Delta antigos não conseguem ler. Já é requisito do Liquid Clustering (ADR-012), então custo marginal aqui é zero — mas vale registrar que essa dependência se intensifica.
 - **Não é reversível trivialmente**: uma vez habilitado, não há comando "desligar". Voltar para `'none'` exige criar tabela nova e copiar dados.
 - **Ferramentas externas que leem Parquet diretamente** (bypass do Delta log) podem ficar confusas — column mapping renomeia campos no nível físico. Mas o caso de uso "ler Parquet bypass" é antipattern em tabelas Delta de qualquer jeito.
 - Pequena complexidade adicional em debug: `SHOW COLUMNS` mostra nome lógico, mas inspeção direta dos Parquets físicos mostra nomes mapeados (`col-<uuid>` ou similar). Raramente relevante, mas surpreende quem não conhece.

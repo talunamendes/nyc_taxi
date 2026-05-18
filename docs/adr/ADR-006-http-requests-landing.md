@@ -20,7 +20,7 @@ Precisamos definir a estratégia de ingestão HTTP da landing alinhada com:
 
 - o volume real do case (5 arquivos, escalável até dezenas/mês em produção);
 - a restrição de rodar em **Databricks Free Edition** (cluster single-node, sem autoscaling);
-- a política de falha parcial já estabelecida no [ADR-003](./ADR-003-partial-failure-policy.md);
+- a política de falha parcial já estabelecida no [ADR-008](./ADR-003-partial-failure-policy.md);
 - a possibilidade futura de expandir para outras agências (Green Taxi, FHV), o que aumenta o nº de arquivos mas mantém a característica de “poucos arquivos grandes”.
 
 ## Decision
@@ -38,7 +38,7 @@ Porque o gargalo do case é **throughput de bytes**, não **número de chamadas*
 
 - Código simples, linear, fácil de auditar e debugar — uma stack trace por mês, não N stacks concorrentes.
 - Streaming garante memória constante: arquivos de 1 GB+ não derrubam o driver.
-- Retry exponencial localizado por mês compõe naturalmente com a política do ADR-003 (falha de um mês não bloqueia os outros).
+- Retry exponencial localizado por mês compõe naturalmente com a política do ADR-008 (falha de um mês não bloqueia os outros).
 - Idempotência via checksum MD5 + verificação de existência é trivial de implementar e testar com loop sequencial.
 - Sem necessidade de gerenciar pool de conexões, semáforos ou event loop — reduz superfície de bug.
 
@@ -55,7 +55,7 @@ Porque o gargalo do case é **throughput de bytes**, não **número de chamadas*
 **Por que não a alternativa óbvia?**
 Threads são a paralelização mais barata em Python para I/O. Mas em arquivos grandes com download via streaming, a banda da NIC é o recurso disputado, não o GIL. Testes preliminares apontaram ganho marginal (<15%) para 5 arquivos, ao custo de:
 
-- gestão de retries por thread (cada falha tem que ser reportada e contabilizada sem bagunçar o sumário JSON do ADR-003);
+- gestão de retries por thread (cada falha tem que ser reportada e contabilizada sem bagunçar o sumário JSON do ADR-008);
 - N streams simultâneos na memória do driver, agravando risco de OOM no single-node;
 - ordem de finalização não-determinística, complicando logs estruturados (`log_with_context` precisaria de correlation ID).
 
@@ -86,7 +86,7 @@ Critérios de validação contínua:
 
 - Tempo total de ingestão dos 5 meses deve permanecer abaixo de 30 min na Free Edition. Se ultrapassar, revisitar.
 - Uso de memória do driver durante o download não deve exceder 1 GB (validável via `dbutils.fs.ls` no metadata + métricas do cluster).
-- A política do ADR-003 deve continuar válida: nenhuma decisão desta ADR conflita com falha parcial por mês.
+- A política do ADR-008 deve continuar válida: nenhuma decisão desta ADR conflita com falha parcial por mês.
 - Checksum MD5 persistido em `_ingestion_metadata.json` deve permitir verificação de integridade pós-ingestão.
 
 **Quando essa decisão deve ser revisitada?**

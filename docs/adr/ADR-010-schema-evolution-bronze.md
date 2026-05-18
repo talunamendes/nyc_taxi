@@ -1,4 +1,4 @@
-# ADR-008: Permissive schema evolution na Bronze
+# ADR-010: Permissive schema evolution na Bronze
 
 - Status: Accepted
 - Date: 2026-05-14
