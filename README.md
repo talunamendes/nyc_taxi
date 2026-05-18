@@ -1,7 +1,5 @@
 # NYC Taxi — Pipeline Lakehouse no Databricks
 
-> **Disclaimer:** Este projeto foi desenvolvido com auxílio de ferramentas de IA — [Claude](https://claude.ai) (Anthropic) e [Cursor](https://www.cursor.com). O código, as decisões arquiteturais e a documentação foram revisados e validados pelo autor.
-
 Pipeline de dados em camadas para ingestão e processamento do dataset **NYC TLC Trip Data** (Yellow e Green Taxi), implementado sobre Databricks com arquitetura Lakehouse.
 
 ---
@@ -213,10 +211,6 @@ As melhorias abaixo foram documentadas nas ADRs como próximos passos naturais, 
 - **Schema drift automático** — adicionar validação automática de que o schema entregue pela Bronze corresponde ao esperado pela Silver, detectando drift antes do MERGE.
 - **Suporte a mais tipos de táxi** — o pipeline já suporta Yellow e Green; estender para FHV e HVFHV requereria apenas novos `PipelineConfig` e DDLs Silver sem redesign estrutural.
 
-### Especificações e documentação de produto
-
-- **Specs por camada** — estruturar especificações funcionais formais para cada camada do pipeline (Landing, Bronze, Silver, Gold) como arquivos `spec.md` versionados no repositório, descrevendo entradas esperadas, contratos de saída, comportamento em casos de erro e critérios de aceitação. Specs servem como referência única para desenvolvimento, revisão e onboarding — eliminando a ambiguidade entre o que o código *faz* e o que ele *deveria* fazer.
-
 ### Testes e qualidade de código
 
 - **Testes de integração entre camadas** — adicionar testes de fronteira (Bronze → Silver, Silver → Gold) para detectar regressões de contrato sem necessidade de execução do pipeline completo.
@@ -251,7 +245,8 @@ As melhorias abaixo foram documentadas nas ADRs como próximos passos naturais, 
 
 ### Leitura complementar
 
-- Kleppmann, Martin. *Designing Data-Intensive Applications* (2015)
-- Gorelik, Alex. *The Enterprise Big Data Lake* (2019)
+- [How to structure your Data Engineering Projects?](https://medium.com/@jainvaibhav62/how-to-structure-your-data-engineering-projects-314fc4d50fa5)
+- [A Modern Python Toolkit: Pydantic, Ruff, MyPy, and UV](https://medium.com/django-unleashed/a-modern-python-toolkit-pydantic-ruff-mypy-and-uv-e76ec8a670b3)
+- [Git project - dab-lakehouse-boilerplate](https://github.com/jojinmp/dab-lakehouse-boilerplate)
 - [How to Structure Python Projects in 2026](https://medium.com/algomart/how-to-structure-python-projects-in-2026-without-regretting-it-later-dcf388a108c6)
 - [Modern Python Code Quality Setup: uv, ruff, and mypy](https://simone-carolini.medium.com/modern-python-code-quality-setup-uv-ruff-and-mypy-8038c6549dcc)

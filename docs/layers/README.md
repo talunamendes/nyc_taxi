@@ -6,6 +6,7 @@ Este diretorio descreve o estado atual de implementacao das camadas do pipeline:
 - [Bronze](./bronze.md)
 - [Silver](./silver.md)
 - [Gold](./gold.md)
+- [Consumo](./consumo.md)
 
 ## Objetivo
 
@@ -38,6 +39,9 @@ Padronizar a documentacao tecnica para:
   colunas obrigatorias do contrato de consumo. Sem fatos pre-agregados
   — as perguntas analiticas rodam como SQL ad-hoc contra a view.
   Modelagem detalhada no ADR-014.
+- `consumo`: Databricks Genie Space configurado sobre `vw_taxi_trips`,
+  permitindo responder as perguntas analiticas via linguagem natural
+  sem dashboard ou infraestrutura adicional de BI.
 
 ## Template usado nos documentos
 
