@@ -6,15 +6,15 @@
 #   com o ciclo de publicação do TLC (~30-45 dias de atraso). Rodar dia 02
 #   dá margem para o TLC publicar o mês anterior.
 #
-# - Landing roda em modo EXPLÍCITO por default (ver ADR-009, revisão de
-#   2026-05-14): valores vêm das variables `target_year` e `target_months`
-#   do bundle, com defaults do escopo atual (2023, Jan-Mai). Discovery continua
-#   suportado via override manual no momento da execução, mas não é o
-#   modo do schedule.
+# - Landing (modo explícito): ano/mês/taxi vêm de *job parameters*
+#   (`{{ job.parameters.* }}` → argv), com default no deploy a partir de
+#   `target_year` / `target_months` / `taxi_type` do bundle. Assim,
+#   `bundle run --params` altera a janela sem redeploy (vars do bundle
+#   sozinhas só afetam o deploy). Discovery continua opcional via override
+#   manual; não é o modo do schedule.
 #
-# - Parâmetros vão dentro de `python_wheel_task.parameters` para virarem
-#   sys.argv do entry point (e serem lidos pelo argparse). Parâmetros no
-#   nível do job NÃO funcionariam — viram variáveis de ambiente, não argv.
+# - Os argv do wheel ficam em `python_wheel_task.parameters`; os valores de
+#   ano/mês/taxi referenciam job parameters; catalog/environment seguem ${var.*}.
 #
 # - Bronze tem `max_retries: 2` por design — schema evolution do Auto Loader
 #   propositalmente termina o stream com UnknownFieldException na primeira
@@ -26,14 +26,24 @@
 #
 # - `--environment` é derivado do bundle target (dev/stg/prd) via ${bundle.target}.
 #
-# - `--taxi-type` é controlado pela variable `taxi_type` do bundle (default:
-#   `both` — ingere yellow_taxi E green_taxi numa única execução). Pode ser
-#   sobrescrito no deploy para isolar backfills (ex.: rodar só green).
+# - `--taxi-type` no schedule defaulta via job parameter `taxi_type`
+#   (default do bundle: `both`). Override em run/deploy como antes.
 
 resources:
   jobs:
     nyc_taxi_job:
       name: nyc_taxi_job
+
+      # Job parameters: resolvidos em cada run (inclui `bundle run --params`).
+      # Defaults usam ${var.*} no deploy; override em ad hoc sem redeploy.
+      # Ver: https://docs.databricks.com/aws/en/dev-tools/bundles/job-parameters
+      parameters:
+        - name: target_year
+          default: ${var.target_year}
+        - name: target_months
+          default: ${var.target_months}
+        - name: taxi_type
+          default: ${var.taxi_type}
 
       schedule:
         # Roda 1x ao mês no dia 02 às 05:00 da manhã (horário de São Paulo).
@@ -63,9 +73,9 @@ resources:
             package_name: nyc_taxi
             entry_point: landing_layer
             parameters:
-              - "--target-year=${var.target_year}"
-              - "--target-months=${var.target_months}"
-              - "--taxi-type=${var.taxi_type}"
+              - "--target-year={{ job.parameters.target_year }}"
+              - "--target-months={{ job.parameters.target_months }}"
+              - "--taxi-type={{ job.parameters.taxi_type }}"
               - "--catalog=${var.catalog}"
               - "--environment=${bundle.target}"
 
@@ -85,7 +95,7 @@ resources:
             package_name: nyc_taxi
             entry_point: bronze_layer
             parameters:
-              - "--taxi-type=${var.taxi_type}"
+              - "--taxi-type={{ job.parameters.taxi_type }}"
               - "--catalog=${var.catalog}"
               - "--environment=${bundle.target}"
 
@@ -100,7 +110,7 @@ resources:
             package_name: nyc_taxi
             entry_point: silver_layer
             parameters:
-              - "--taxi-type=${var.taxi_type}"
+              - "--taxi-type={{ job.parameters.taxi_type }}"
               - "--catalog=${var.catalog}"
               - "--environment=${bundle.target}"
 

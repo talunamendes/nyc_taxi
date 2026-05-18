@@ -16,9 +16,19 @@ artifacts:
     type: whl
     build: uv build --wheel
 
-# Variables intended for easy override when cloning this repository.
-# Example:
+# Variables: resolvidas no *deploy* (substituem ${var.*} no bundle).
+#
+# Landing (ano/mês/taxi): em `resources/nyc_taxi_job.yml` viram o *default*
+# dos job parameters (`target_year`, `target_months`, `taxi_type`). O schedule
+# e runs sem override usam esses defaults. Para um run pontual com outra
+# janela, use `make dab-run TARGET_YEAR=... TARGET_MONTHS=...` (gera
+# `bundle run --params ...`); passar só `--var` no `bundle run` não altera
+# um job já deployado. Ver:
+# https://docs.databricks.com/aws/en/dev-tools/bundles/job-parameters
+#
+# Exemplos:
 #   databricks bundle deploy -t dev --var="catalog=nyc_taxi_dev_john"
+#   databricks bundle deploy -t dev --var="target_year=2024" --var="target_months=1,2,3"
 variables:
   catalog:
     description: The catalog to use
@@ -27,28 +37,27 @@ variables:
     description: Wheel filename generated under dist/ and uploaded with bundle files
     default: CHANGE_ME_WHEEL_FILE.whl
 
-  # Landing — modo explícito (default do schedule, ver ADR-009).
-  # Override exemplo para ingestão de ano diferente:
-  #   databricks bundle deploy -t dev --var="target_year=2024" --var="target_months=1,2,3"
+  # Landing — modo explícito (ADR-009). Default do job parameter `target_year`.
   target_year:
-    description: Year to ingest in the scheduled landing run
+    description: >
+      Default for job parameter target_year (landing explicit mode).
+      Set at deploy via --var; per-run override via make dab-run → --params.
     default: "2023"
   target_months:
-    description: Comma-separated months to ingest in the scheduled landing run
+    description: >
+      Default for job parameter target_months, comma-separated months
+      (e.g. 1,2,3 or 6). Set at deploy via --var; per-run via dab-run → --params.
     default: "1,2,3,4,5"
 
-  # Taxi type a ingerir (landing + bronze). Aceita 'yellow', 'green' ou
-  # 'both' (default). 'both' faz uma única execução baixar e materializar
-  # tanto yellow_taxi quanto green_taxi.
-  # Override exemplo para rodar apenas green em backfill:
-  #   databricks bundle deploy -t dev --var="taxi_type=green"
+  # Taxi type: default do job parameter `taxi_type` (landing + bronze + silver).
   taxi_type:
-    description: Taxi type to ingest (yellow | green | both)
+    description: >
+      Default for job parameter taxi_type: yellow | green | both.
+      Deploy: --var; single run: make dab-run TAXI_TYPE=... → --params.
     default: "both"
 
   # Landing — discovery (modo opcional, NÃO usado pelo schedule).
-  # Mantido para execução manual via `databricks bundle run` ou
-  # override em backfill futuro. Não tem efeito no schedule diário.
+  # Só bundle vars (--var em deploy / dab-run), não job parameter.
   # Exemplo de uso manual:
   #   databricks jobs run-now --job-id <id> \
   #     --python-named-params '{"discover":"true","discover-from":"2023-01"}'
