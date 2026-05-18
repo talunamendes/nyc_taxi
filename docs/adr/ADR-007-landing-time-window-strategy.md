@@ -11,9 +11,9 @@ A camada Landing tem três decisões inter-relacionadas sobre **como tratar a pa
 2. **Quem decide o que ingerir** — o caller passa a lista explícita, ou a landing descobre o que falta?
 3. **Com que frequência o job roda** — diário, semanal, mensal?
 
-O pipeline está sendo entregue como **case técnico avaliado**, com pedido explícito de ingerir Jan–Mai/2023. Mas a rubrica de avaliação e o bom senso de engenharia pedem que o pipeline **permita evolução natural** para outros meses e anos sem refator de código.
+O pipeline tem como **escopo inicial** a ingestão de Jan–Mai/2023, mas precisa **permitir evolução natural** para outros meses e anos sem refator de código.
 
-Versões iniciais tinham `target_year: int = 2023` e `target_months = (1,2,3,4,5)` como defaults no `PipelineConfig`. Isso resolve o caso pedido mas esconde dois problemas:
+Versões iniciais tinham `target_year: int = 2023` e `target_months = (1,2,3,4,5)` como defaults no `PipelineConfig`. Isso resolve o escopo inicial mas esconde dois problemas:
 
 - O config "mente" sobre a natureza do pipeline — lendo o arquivo parece que ele "só sabe fazer 2023".
 - Avançar para qualquer outra janela exige editar o config, um arquivo que deveria ser estável entre execuções.
@@ -26,7 +26,7 @@ Três decisões agrupadas, sustentadas por um princípio comum: **o pipeline nã
 
 ### Decisão 1 — Separar configuração de parâmetros de execução
 
-`target_year` e `target_months` não pertencem ao `PipelineConfig`. Passam a ser argumentos obrigatórios da CLI da landing (em um dos dois modes descritos na Decisão 2) e, no schedule do job, vêm das variables `target_year` e `target_months` do bundle, com defaults do case (`"2023"` e `"1,2,3,4,5"`).
+`target_year` e `target_months` não pertencem ao `PipelineConfig`. Passam a ser argumentos obrigatórios da CLI da landing (em um dos dois modes descritos na Decisão 2) e, no schedule do job, vêm das variables `target_year` e `target_months` do bundle, com defaults do escopo inicial (`"2023"` e `"1,2,3,4,5"`).
 
 O `PipelineConfig` mantém apenas o que é **estável entre execuções**: catalog, schemas, URL template, thresholds de DQ, tags. Adiciona `tlc_publication_lag_months` (default 2) para modelar explicitamente o atraso esperado da fonte.
 
@@ -46,11 +46,11 @@ Sem nenhum dos dois conjuntos, falha cedo com mensagem clara.
 **Por que essa escolha?**
 Porque os dois modes atendem casos de uso genuinamente diferentes:
 
-- **Explicit mode** dá reprodutibilidade. O avaliador roda `make dab-deploy ENV=dev` e o pipeline entrega exatamente o que o case pediu, independente da data corrente. Janelas determinísticas tornam o pipeline testável (mesma entrada → mesma saída) e tornam debug previsível.
+- **Explicit mode** dá reprodutibilidade. Quem executa roda `make dab-deploy ENV=dev` e o pipeline entrega exatamente a janela alvo, independente da data corrente. Janelas determinísticas tornam o pipeline testável (mesma entrada → mesma saída) e tornam debug previsível.
 
 - **Discovery mode** dá auto-manutenção. Volume novo aparece, discovery percebe e baixa. Útil quando o pipeline migrar para produção contínua, e útil agora para casos como backfill ("preciso popular do zero um catálogo novo desde 2023-01") ou recuperação ("perdi o volume, preciso re-baixar tudo").
 
-Defaultar a discovery no schedule introduziria comportamento dependente de data corrente — execução em Maio/2026 baixaria janela diferente de execução em Setembro/2026. Para case avaliado, isso prejudica reprodutibilidade. Manter explícito como default do schedule entrega previsibilidade hoje sem perder a opção de migrar para discovery quando o cenário mudar (mudança de YAML, não de código).
+Defaultar a discovery no schedule introduziria comportamento dependente de data corrente — execução em Maio/2026 baixaria janela diferente de execução em Setembro/2026. No escopo atual, isso prejudica reprodutibilidade. Manter explícito como default do schedule entrega previsibilidade hoje sem perder a opção de migrar para discovery quando o cenário mudar (mudança de YAML, não de código).
 
 ### Decisão 3 — Schedule mensal, dia 02
 
@@ -66,7 +66,7 @@ Com explicit mode como default do schedule, o schedule mensal não é estritamen
 ### Positivas
 
 - **`PipelineConfig` para de "mentir"**: lendo o arquivo, fica claro que o pipeline é genérico, não específico de 2023.
-- **Avaliação reprodutível**: `make dab-deploy ENV=dev && make dab-run ENV=dev` entrega exatamente os 5 meses do case, independente da data de execução do avaliador.
+- **Execução reprodutível**: `make dab-deploy ENV=dev && make dab-run ENV=dev` entrega exatamente os 5 meses do escopo inicial, independente da data de execução.
 - **Override sem código**: passar `--var="target_year=2024" --var="target_months=1,2,3"` no deploy muda a janela do schedule sem editar arquivos versionados.
 - **Discovery preservado para evolução**: implementação completa e testável, pronta para virar default do schedule quando o pipeline migrar para produção contínua. Migração custa ~5 linhas de YAML.
 - **Lag de publicação modelado explicitamente**: `tlc_publication_lag_months` no config substitui "conhecimento tribal" sobre o ciclo do TLC por valor versionado e configurável.
@@ -87,21 +87,21 @@ Com explicit mode como default do schedule, o schedule mensal não é estritamen
 Status anterior ao trabalho desta ADR.
 
 **Por que não a alternativa óbvia?**
-Manter por inércia é tentador (não quebra nada), mas perpetua o problema. Os defaults `2023` + `(1,2,3,4,5)` parecem "exemplos sensatos" mas funcionam como **âncora silenciosa**: o pipeline carrega para sempre o footprint do case original. Em 2027, quando alguém abrir o repo, ainda vai estar lá. Tirar agora, com poucos arquivos consumindo isso, é trivial; tirar daqui a 2 anos é refactor de risco. Custo zero hoje, custo crescente amanhã — exatamente o tipo de débito que vale pagar cedo.
+Manter por inércia é tentador (não quebra nada), mas perpetua o problema. Os defaults `2023` + `(1,2,3,4,5)` parecem "exemplos sensatos" mas funcionam como **âncora silenciosa**: o pipeline carrega para sempre o footprint do escopo inicial. Em 2027, quando alguém abrir o repo, ainda vai estar lá. Tirar agora, com poucos arquivos consumindo isso, é trivial; tirar daqui a 2 anos é refactor de risco. Custo zero hoje, custo crescente amanhã — exatamente o tipo de débito que vale pagar cedo.
 
 ### Rejeitada: Discovery mode como default do schedule
 
 Discovery rodando no schedule mensal, sem necessidade de definir janela alvo no bundle.
 
 **Por que não essa alternativa?**
-Discovery é o mode certo para produção contínua, onde auto-manutenção é mais valiosa que previsibilidade. Mas o pipeline atual é entregue como case avaliado: o avaliador roda o pipeline uma ou duas vezes, e precisa receber a mesma entrega independente do dia da execução. Discovery introduz comportamento dependente de data corrente — execução em Junho baixaria diferente da execução em Outubro. Para case avaliado, **reprodutibilidade vence auto-manutenção**. Discovery permanece implementado para casos manuais e como caminho de migração quando o pipeline virar produção real.
+Discovery é o mode certo para produção contínua, onde auto-manutenção é mais valiosa que previsibilidade. Mas no escopo atual o pipeline é executado uma ou duas vezes para validação, e precisa entregar a mesma janela independente do dia da execução. Discovery introduz comportamento dependente de data corrente — execução em Junho baixaria diferente da execução em Outubro. No escopo atual, **reprodutibilidade vence auto-manutenção**. Discovery permanece implementado para casos manuais e como caminho de migração quando o pipeline virar produção real.
 
 ### Rejeitada: Modo único (apenas explícito, ou apenas discovery)
 
 Implementar só um dos modes para simplificar.
 
 **Por que não essa alternativa?**
-Cada mode cobre casos que o outro não cobre bem. Sem explícito, perdemos: (a) reprodutibilidade para case e debug; (b) backfill direcionado ("re-ingere só Março/2024 que veio corrompido"). Sem discovery, perdemos: (a) caminho natural de migração para produção contínua; (b) recuperação eficiente após perda de volume (sem discovery, alguém precisa listar mês a mês o que faltava). Os dois modes custam pouco código adicional (a validação mutuamente-exclusiva resolve a complexidade) e habilitam casos suficientemente diferentes para coexistir.
+Cada mode cobre casos que o outro não cobre bem. Sem explícito, perdemos: (a) reprodutibilidade para validação e debug; (b) backfill direcionado ("re-ingere só Março/2024 que veio corrompido"). Sem discovery, perdemos: (a) caminho natural de migração para produção contínua; (b) recuperação eficiente após perda de volume (sem discovery, alguém precisa listar mês a mês o que faltava). Os dois modes custam pouco código adicional (a validação mutuamente-exclusiva resolve a complexidade) e habilitam casos suficientemente diferentes para coexistir.
 
 ### Rejeitada: Modos diferentes por ambiente (dev/stg explícito, prd discovery)
 
@@ -149,10 +149,10 @@ Critérios de validação contínua:
 
 **Quando essa decisão deve ser revisitada?**
 
-- **Quando o pipeline migrar de "case entregue" para "produção contínua"**: trocar default do schedule para discovery. Custo: editar 2 linhas no `nyc_taxi_job.yml` (trocar `--target-year`/`--target-months` por `--discover`/`--discover-from`). Sem refator de código Python.
+- **Quando o pipeline migrar de "entrega pontual" para "produção contínua"**: trocar default do schedule para discovery. Custo: editar 2 linhas no `nyc_taxi_job.yml` (trocar `--target-year`/`--target-months` por `--discover`/`--discover-from`). Sem refator de código Python.
 - **Quando aparecer necessidade real de modes diferentes por ambiente**: introduzir override por target no `databricks.yml` (dev/stg explícito, prd discovery).
 - **Quando a fonte mudar de TLC para outra com cadência diferente**: API com publicação intra-dia troca todas as três decisões — schedule mais frequente, lag diferente, possivelmente discovery por cursor em vez de path.
 - **Quando o pipeline expandir para múltiplos datasets** (Green Taxi, FHV, Citi Bike): considerar um schedule por dataset, ou um schedule único com fan-out via task matrix.
 - **Quando aparecerem casos reais de erro operacional por falta de `--discover-max-months`**: adicionar o teto.
 - **Quando o TLC mudar o ciclo de publicação** (improvável mas possível): revisar `tlc_publication_lag_months` e o `quartz_cron_expression`.
-- **Quando o caso de uso de "janela rolante" surgir** (pipeline diário com janela móvel de N meses): considerar `--lookback-months` como terceiro mode.
+- **Quando o uso de "janela rolante" surgir** (pipeline diário com janela móvel de N meses): considerar `--lookback-months` como terceiro mode.

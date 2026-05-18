@@ -5,7 +5,7 @@
 
 ## Context
 
-A camada Bronze precisa carregar os Parquets do NYC TLC que já estão na landing zone (UC Volume, particionada `year=/month=`) para uma tabela Delta append-only. O case pede que **novos arquivos sejam detectados e processados** sem reprocessar o que já foi ingerido.
+A camada Bronze precisa carregar os Parquets do NYC TLC que já estão na landing zone (UC Volume, particionada `year=/month=`) para uma tabela Delta append-only. O requisito é que **novos arquivos sejam detectados e processados** sem reprocessar o que já foi ingerido.
 
 O escopo inicial é pequeno (5 arquivos, Jan–Mai/2023), mas a estratégia escolhida vai dimensionar uma característica não-funcional importante: **como o pipeline se comporta quando arquivos novos chegam na landing** — seja pela próxima janela mensal do TLC, seja por reprocessamento manual de uma partition corrompida.
 
@@ -21,7 +21,7 @@ Avaliamos quatro abordagens no Databricks:
 A camada Bronze usa **Auto Loader in batch mode (`trigger(availableNow=True)`)**, com `schemaLocation` e `checkpointLocation` persistidos em UC Volumes dedicados (`_schemas` e `_checkpoints`).
 
 **Por que essa escolha?**
-Porque Auto Loader resolve **três problemas que estariam no nosso colo** com qualquer outra abordagem: (a) **descoberta de arquivos novos** via tracking de estado em checkpoint, sem precisar manter um registro próprio de "o que já foi ingerido"; (b) **idempotência ponto-a-ponto** — re-execuções do job só processam o que é genuinamente novo, sem listar diretório inteiro a cada vez; (c) **escalabilidade futura** — quando o volume cresce de 5 para milhares de arquivos, o mesmo código continua funcionando sem refatoração porque o estado é mantido pelo próprio Auto Loader. Para um case MVP que precisa "permitir evolução", isso é mais valor por menos código que qualquer alternativa.
+Porque Auto Loader resolve **três problemas que estariam no nosso colo** com qualquer outra abordagem: (a) **descoberta de arquivos novos** via tracking de estado em checkpoint, sem precisar manter um registro próprio de "o que já foi ingerido"; (b) **idempotência ponto-a-ponto** — re-execuções do job só processam o que é genuinamente novo, sem listar diretório inteiro a cada vez; (c) **escalabilidade futura** — quando o volume cresce de 5 para milhares de arquivos, o mesmo código continua funcionando sem refatoração porque o estado é mantido pelo próprio Auto Loader. Para um pipeline MVP que precisa "permitir evolução", isso é mais valor por menos código que qualquer alternativa.
 
 ## Consequences
 
@@ -49,7 +49,7 @@ Porque Auto Loader resolve **três problemas que estariam no nosso colo** com qu
 **Por que não a alternativa óbvia?**
 Três razões:
 
-1. **Schema evolution menos flexível**: `COPY INTO` aceita `MERGESCHEMA` mas não tem o equivalente ao `schemaEvolutionMode=addNewColumns` do Auto Loader, que separa **detecção de schema** (no `schemaLocation`) de **aplicação no destino** (via `mergeSchema`). Para o requisito do case ("permitir evolução"), Auto Loader dá controle mais granular.
+1. **Schema evolution menos flexível**: `COPY INTO` aceita `MERGESCHEMA` mas não tem o equivalente ao `schemaEvolutionMode=addNewColumns` do Auto Loader, que separa **detecção de schema** (no `schemaLocation`) de **aplicação no destino** (via `mergeSchema`). Para o requisito de "permitir evolução", Auto Loader dá controle mais granular.
 2. **Tracking de arquivos é uma caixa-preta**: `COPY INTO` rastreia internamente o que foi processado, mas o estado fica acoplado à tabela. Não há um `_checkpoints` que se possa inspecionar/manipular facilmente para reprocessar uma janela específica — você precisa de `COPY_OPTIONS('force' = 'true')`, que reprocessa tudo.
 3. **Sem coluna virtual `_metadata`** do mesmo jeito: dá pra obter o arquivo de origem via `input_file_name()`, mas não há `file_modification_time` ou path-based metadata expostos uniformemente como no Auto Loader.
 
@@ -67,7 +67,7 @@ DLT define o pipeline declarativamente em SQL/Python, com expectations, lineage 
 
 **Por que não essa alternativa?** Três razões:
 
-1. **Free Edition não suporta DLT** — bloqueador absoluto para o case.
+1. **Free Edition não suporta DLT** — bloqueador absoluto no escopo atual.
 2. **Overhead conceitual**: DLT introduz outro modelo mental (`@dlt.table`, pipeline JSON, modes `triggered`/`continuous`) que não agrega valor proporcional para 5 arquivos.
 3. **Acoplamento maior**: pipeline DLT é gerenciado pelo serviço Databricks, não roda em cluster genérico — reduz controle sobre lifecycle e debugging.
 
@@ -85,7 +85,7 @@ Critérios de validação contínua:
 - Re-execução do job sem mudança na landing deve resultar em `rows_ingested = 0` (idempotência).
 - Inserir um Parquet novo (ex: simulando mês de Junho/2023) e re-executar deve resultar em **apenas o novo arquivo processado**, não todos.
 - Checkpoint não deve crescer descontroladamente: monitorar tamanho do diretório `_checkpoints/bronze_yellow_trips` ao longo do tempo.
-- Tempo de detecção de arquivos novos deve permanecer abaixo de ~10s para o volume do case; degradação significativa indica que o listing mode precisa ser revisitado (file notification em vez de directory listing).
+- Tempo de detecção de arquivos novos deve permanecer abaixo de ~10s para o volume atual; degradação significativa indica que o listing mode precisa ser revisitado (file notification em vez de directory listing).
 
 **Quando essa decisão deve ser revisitada?**
 

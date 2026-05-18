@@ -12,7 +12,7 @@ O schema dos Parquets publicados pelo NYC TLC **não é estável ao longo do tem
 - `payment_type` mudou de tipo (INT → BIGINT) em ~2022.
 - Esporadicamente, colunas mudam de ordem entre publicações.
 
-O case atual usa apenas dados de 2023, mas o pipeline precisa lidar com a possibilidade real de TLC publicar uma coluna nova no futuro (ex: extensão para 2024, ou ingestão automática de novos meses). Precisamos decidir como a bronze reage quando o Parquet de origem tem schema diferente do esperado.
+O escopo atual usa apenas dados de 2023, mas o pipeline precisa lidar com a possibilidade real de TLC publicar uma coluna nova no futuro (ex: extensão para 2024, ou ingestão automática de novos meses). Precisamos decidir como a bronze reage quando o Parquet de origem tem schema diferente do esperado.
 
 Há um espectro de políticas possíveis:
 
@@ -32,7 +32,7 @@ A bronze adota **a permissive policy with automatic column addition** (opção 2
 Mudanças de tipo (item 4) **continuam quebrando**, intencionalmente. Apenas adição de coluna evolui automaticamente.
 
 **Por que essa escolha?**
-Porque o objetivo da bronze é ser **fiel à fonte com o mínimo de fricção operacional**. Se o TLC adiciona `cbd_congestion_fee`, queremos que essa coluna apareça na bronze automaticamente, sem aguardar um humano editar DDL — o dado já está perdido nessa janela se exigirmos intervenção manual. Por outro lado, mudança de tipo (ex: `total_amount` virar STRING) **deve quebrar**: tipo diferente significa que algo conceitualmente mudou e processamento downstream pode estar corrompendo dados silenciosamente. A combinação dá o "permitir evolução" do case sem virar terra-de-ninguém.
+Porque o objetivo da bronze é ser **fiel à fonte com o mínimo de fricção operacional**. Se o TLC adiciona `cbd_congestion_fee`, queremos que essa coluna apareça na bronze automaticamente, sem aguardar um humano editar DDL — o dado já está perdido nessa janela se exigirmos intervenção manual. Por outro lado, mudança de tipo (ex: `total_amount` virar STRING) **deve quebrar**: tipo diferente significa que algo conceitualmente mudou e processamento downstream pode estar corrompendo dados silenciosamente. A combinação atende ao requisito de "permitir evolução" sem virar terra-de-ninguém.
 
 ## Consequences
 

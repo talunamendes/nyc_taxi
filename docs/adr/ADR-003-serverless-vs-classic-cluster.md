@@ -5,7 +5,7 @@
 
 ## Context
 
-O pipeline do case precisa ser simples de clonar/executar por diferentes pessoas, com baixo esforço de bootstrap em Databricks Free Edition e sem exigir configuração manual de cluster por usuário.
+O pipeline precisa ser simples de clonar/executar por diferentes pessoas, com baixo esforço de bootstrap em Databricks Free Edition e sem exigir configuração manual de cluster por usuário.
 
 A decisão de compute impacta diretamente:
 
@@ -18,7 +18,7 @@ A decisão de compute impacta diretamente:
 Adotar **Serverless Jobs** como compute padrão das tasks do workflow, com `environment_key` e dependências definidas em `environments.spec.dependencies`.
 
 **Por que essa escolha?**  
-Porque reduz fricção de execução para quem clona o projeto (sem `cluster_id` por usuário), simplifica operação do case e mantém foco na lógica de dados em vez de administração de cluster.
+Porque reduz fricção de execução para quem clona o projeto (sem `cluster_id` por usuário), simplifica operação do pipeline e mantém foco na lógica de dados em vez de administração de cluster.
 
 Referências oficiais:
 
@@ -32,7 +32,7 @@ Referências oficiais:
 - Menor esforço de onboarding para novos usuários no workspace.
 - Menor dependência de configuração manual de cluster existente.
 - Menor risco de erro por `cluster_id` inválido/permissão de cluster.
-- Execução mais consistente para o objetivo do case técnico.
+- Execução mais consistente para o objetivo do projeto.
 
 ### Negativas (trade-offs)
 
@@ -45,12 +45,12 @@ Referências oficiais:
 ### Rejeitada: usar Classic Cluster (`existing_cluster_id`) como padrão
 
 **Por que não a alternativa óbvia?**  
-Classic Cluster é uma opção comum e flexível, mas neste caso aumenta a fricção para quem clona o repositório: cada usuário precisa cluster próprio, permissões e `cluster_id` válido. Isso piora a portabilidade e adiciona erro operacional em um cenário de avaliação técnica.
+Classic Cluster é uma opção comum e flexível, mas neste caso aumenta a fricção para quem clona o repositório: cada usuário precisa cluster próprio, permissões e `cluster_id` válido. Isso piora a portabilidade e adiciona erro operacional em um cenário onde se prioriza reprodutibilidade.
 
 ### Outras consideradas
 
 - Job cluster dedicado por workflow: bom isolamento, mas maior esforço de parametrização/custo operacional para o objetivo atual.
-- Estratégia híbrida (serverless em dev, classic em prod): possível, mas adiciona complexidade prematura para o case.
+- Estratégia híbrida (serverless em dev, classic em prod): possível, mas adiciona complexidade prematura para o escopo atual.
 
 ## Validation
 

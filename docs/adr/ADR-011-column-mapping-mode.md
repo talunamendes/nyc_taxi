@@ -32,7 +32,7 @@ Porque o custo é zero (uma propriedade no `CREATE TABLE`) e o benefício é ass
 
 - `ALTER TABLE ... RENAME COLUMN antigo TO novo` vira metadata-only — útil se descobrirmos que `_source_year` deveria ter sido `_partition_year`, ou se TLC renomear coluna entre publicações.
 - `ALTER TABLE ... DROP COLUMN` também metadata-only — possibilita remover colunas obsoletas sem rewrite. Útil se uma coluna fictícia foi adicionada via permissive schema evolution (ADR-010) e precisamos limpar.
-- Suporte a nomes não-padrão se algum dia for necessário (improvável neste case, mas barato).
+- Suporte a nomes não-padrão se algum dia for necessário (improvável neste escopo, mas barato).
 - Time travel funciona consistentemente após rename/drop — Delta resolve via mapping, não por nome literal no histórico.
 
 ### Negativas (trade-offs)

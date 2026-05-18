@@ -55,7 +55,7 @@ Em termos praticos, a camada:
 Ingerir e transformar diretamente em uma tabela final, sem separacao bronze/silver/gold.
 
 **Por que nao a alternativa obvia?**
-Para um case pequeno, camada unica parece mais rapida no dia 1. O problema e o dia 30: erros de transformacao viram retrabalho caro, investigacao de qualidade fica opaca e o pipeline perde capacidade de evoluir com seguranca. A economia inicial vira debito tecnico cedo demais.
+Para um projeto pequeno, camada unica parece mais rapida no dia 1. O problema e o dia 30: erros de transformacao viram retrabalho caro, investigacao de qualidade fica opaca e o pipeline perde capacidade de evoluir com seguranca. A economia inicial vira debito tecnico cedo demais.
 
 ### Rejeitada: Data Warehouse-first sem zona bruta historica
 

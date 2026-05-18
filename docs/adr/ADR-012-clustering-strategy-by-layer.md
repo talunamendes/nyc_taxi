@@ -14,7 +14,7 @@ Cada camada do Lakehouse (Bronze, Silver, Gold) tem padrão de escrita e leitura
 
 Esta ADR define **onde aplicar clustering ou não** ao longo do pipeline. Versão anterior desta ADR defendia Liquid Clustering na bronze — decisão revisitada após análise do padrão de leitura real da camada.
 
-Padrões observados por camada no case:
+Padrões observados por camada no escopo atual:
 
 | Camada | Padrão de escrita | Padrão de leitura | Volume típico |
 |--------|-------------------|--------------------|---------------|

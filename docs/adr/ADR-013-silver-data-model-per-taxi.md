@@ -90,7 +90,7 @@ Manter as duas físicas e expor uma view com `UNION ALL` aliasando `lpep_*` para
 
 **Por que não essa alternativa agora?**
 
-É uma evolução plausível, **mas materializá-la sem caso de uso comprovado é especulação**. Hoje as análises do case são por taxi; as duas análises da gold (média mensal e média por hora em maio) podem rodar contra `yellow_taxi_trips` diretamente. Quando emergir uma análise cross-taxi recorrente, criar essa view é um `CREATE VIEW` barato e reversível — fazer agora seria over-engineering. O ADR explicitamente delega isso à gold/feature store quando a demanda existir.
+É uma evolução plausível, **mas materializá-la sem caso de uso comprovado é especulação**. Hoje as análises são por taxi; as duas análises da gold (média mensal e média por hora em maio) podem rodar contra `yellow_taxi_trips` diretamente. Quando emergir uma análise cross-taxi recorrente, criar essa view é um `CREATE VIEW` barato e reversível — fazer agora seria over-engineering. O ADR explicitamente delega isso à gold/feature store quando a demanda existir.
 
 ### Outras consideradas
 

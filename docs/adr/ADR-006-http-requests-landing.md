@@ -5,7 +5,7 @@
 
 ## Context
 
-A landing zone do pipeline (`src/.../landing/main.py`) faz download dos arquivos Parquet do NYC TLC CDN e os persiste em UC Volume com particionamento Hive-style. Para o escopo inicial do case (Yellow Taxi, Jan–Mai/2023), são **5 arquivos grandes** (~500 MB a 1 GB cada), um por mês.
+A landing zone do pipeline (`src/.../landing/main.py`) faz download dos arquivos Parquet do NYC TLC CDN e os persiste em UC Volume com particionamento Hive-style. Para o escopo inicial (Yellow Taxi, Jan–Mai/2023), são **5 arquivos grandes** (~500 MB a 1 GB cada), um por mês.
 
 Antes de escolher como fazer essas chamadas HTTP, avaliamos quatro famílias de abordagens em um benchmark interno (vide notebook `benchmark_ingestao_api.ipynb`):
 
@@ -14,11 +14,11 @@ Antes de escolher como fazer essas chamadas HTTP, avaliamos quatro famílias de 
 3. `aiohttp` / `httpx` assíncrono — concorrência via event loop.
 4. Spark distribuído (`spark.read.json(rdd)` ou UDFs/`mapInPandas`) — paralelismo no cluster.
 
-O benchmark mostrou que, para **muitas chamadas pequenas** (centenas de IDs, payload em KB), abordagens paralelas (threads, async, `mapInPandas`) chegam a ser 5–10× mais rápidas que o síncrono. Mas o cenário do case é o oposto: **poucas chamadas grandes**, dominadas por throughput de download, não por latência de handshake.
+O benchmark mostrou que, para **muitas chamadas pequenas** (centenas de IDs, payload em KB), abordagens paralelas (threads, async, `mapInPandas`) chegam a ser 5–10× mais rápidas que o síncrono. Mas o cenário atual é o oposto: **poucas chamadas grandes**, dominadas por throughput de download, não por latência de handshake.
 
 Precisamos definir a estratégia de ingestão HTTP da landing alinhada com:
 
-- o volume real do case (5 arquivos, escalável até dezenas/mês em produção);
+- o volume real do escopo atual (5 arquivos, escalável até dezenas/mês em produção);
 - a restrição de rodar em **Databricks Free Edition** (cluster single-node, sem autoscaling);
 - a política de falha parcial já estabelecida no [ADR-008](./ADR-003-partial-failure-policy.md);
 - a possibilidade futura de expandir para outras agências (Green Taxi, FHV), o que aumenta o nº de arquivos mas mantém a característica de “poucos arquivos grandes”.
@@ -30,7 +30,7 @@ A ingestão da landing usa **`requests` síncrono com streaming (`stream=True` +
 Não usaremos paralelização (threads, async, Spark distribuído) na landing zone. A paralelização entra apenas a partir da camada Bronze, onde o Spark lê os Parquets já materializados em UC Volume.
 
 **Por que essa escolha?**
-Porque o gargalo do case é **throughput de bytes**, não **número de chamadas**. Para 5 arquivos de ~700 MB, o tempo de download é dominado pela banda do CDN e do driver, não pela latência por requisição. Paralelizar 5 downloads gigantes na mesma máquina **divide a mesma banda** entre eles — ganho prático próximo de zero, com custo extra de complexidade, gestão de retries por thread e maior chance de OOM ao manter múltiplos streams ativos. O streaming com `iter_content(1 MB)` mantém a memória do driver constante (~poucos MB) independente do tamanho do arquivo, o que é crítico no single-node do Free Edition.
+Porque o gargalo é **throughput de bytes**, não **número de chamadas**. Para 5 arquivos de ~700 MB, o tempo de download é dominado pela banda do CDN e do driver, não pela latência por requisição. Paralelizar 5 downloads gigantes na mesma máquina **divide a mesma banda** entre eles — ganho prático próximo de zero, com custo extra de complexidade, gestão de retries por thread e maior chance de OOM ao manter múltiplos streams ativos. O streaming com `iter_content(1 MB)` mantém a memória do driver constante (~poucos MB) independente do tamanho do arquivo, o que é crítico no single-node do Free Edition.
 
 ## Consequences
 
@@ -59,7 +59,7 @@ Threads são a paralelização mais barata em Python para I/O. Mas em arquivos g
 - N streams simultâneos na memória do driver, agravando risco de OOM no single-node;
 - ordem de finalização não-determinística, complicando logs estruturados (`log_with_context` precisaria de correlation ID).
 
-O ganho não compensa a complexidade para o volume do case. Reservamos threads para um cenário futuro de “muitos arquivos pequenos” (ex: ingestão diária particionada).
+O ganho não compensa a complexidade para o volume atual. Reservamos threads para um cenário futuro de “muitos arquivos pequenos” (ex: ingestão diária particionada).
 
 ### Rejeitada: `aiohttp` / `httpx.AsyncClient`
 
@@ -69,7 +69,7 @@ Mesma análise do item anterior, agravada por dois fatores: (a) `requests` já �
 
 Spark **lê** Parquets de URL HTTP/S3 nativamente, então em tese poderíamos pular a landing e ler direto do CDN para Bronze. Rejeitamos por três motivos:
 
-1. **Auditoria**: o case exige landing zone com arquivos originais preservados; pular essa camada perde a possibilidade de reprocessar Bronze sem novo hit no CDN.
+1. **Auditoria**: o requisito da arquitetura inclui landing zone com arquivos originais preservados; pular essa camada perde a possibilidade de reprocessar Bronze sem novo hit no CDN.
 2. **Acoplamento com fonte externa**: cada reprocessamento Bronze dependeria do CDN estar no ar e respondendo dentro do timeout do executor. Desacoplar via landing é mais resiliente.
 3. **Free Edition**: cluster single-node não ganha nada com paralelismo distribuído para 5 arquivos.
 
