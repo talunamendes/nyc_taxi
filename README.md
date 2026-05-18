@@ -184,6 +184,10 @@ Todas as tabelas Silver possuem Unity Catalog tags (`layer`, `domain`, `taxi_typ
 
 O código de produção é empacotado como wheel com `uv build` e distribuído como artefato versionado no job. Isso garante isolamento de dependências, reprodutibilidade entre ambientes e compatibilidade com o modelo de execução Serverless do Databricks.
 
+### Genie Space para consultas em linguagem natural
+
+A view `vw_taxi_trips` publicada na Gold é diretamente consumível pelo [Databricks Genie Space](https://docs.databricks.com/en/genie/index.html) — interface de BI conversacional nativa do Databricks. Com Genie, analistas e stakeholders podem responder perguntas sobre o dataset em linguagem natural ("qual o mês com maior receita média por corrida?", "quantas corridas foram feitas na última semana de maio?") sem escrever SQL ou depender de engenharia de dados para cada nova pergunta. O Genie traduz as perguntas para SQL automaticamente, executa contra a view já curada e retorna resultados com rastreabilidade da query gerada. O principal benefício desta abordagem é o desacoplamento entre a demanda analítica e o ciclo de desenvolvimento do pipeline: o contrato de colunas da Gold (`VendorID`, `passenger_count`, `total_amount`, `tpep_pickup_datetime`, `tpep_dropoff_datetime`, `taxi_type`) funciona como o vocabulário que o Genie usa para explorar os dados — tornando a camada Gold não apenas um artefato técnico, mas um produto de dados acessível ao negócio.
+
 ### ADRs como documentação de raciocínio
 
 O projeto mantém 15 Architectural Decision Records documentando o *porquê* de cada escolha técnica — incluindo alternativas avaliadas, trade-offs aceitos e gatilhos para revisão. Ver [`docs/adr/`](docs/adr/README.md).
