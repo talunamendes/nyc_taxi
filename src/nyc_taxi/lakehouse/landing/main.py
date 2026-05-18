@@ -19,9 +19,16 @@ Modos de execução:
 
 Modos são mutuamente exclusivos. Sem nenhum deles, falha cedo.
 
+Tipos de taxi:
+- `--taxi-type=yellow|green|both` (default: `both`).
+- Cada tipo é baixado em subpath isolado dentro do volume da landing
+  (`.../<taxi_type>/year=YYYY/month=MM/...`). Isso é o que permite ao
+  Auto Loader da bronze ler cada dataset em uma tabela independente.
+
 Responsabilidades:
 - Baixar Parquets do NYC TLC (CDN).
-- Persistir em UC Volume com particionamento Hive-style year=/month=.
+- Persistir em UC Volume com particionamento Hive-style year=/month=,
+  segmentado por subpath de taxi (`yellow/` e `green/`).
 - Registrar metadados de ingestão (checksum, tamanho, timestamp).
 - Idempotência: se arquivo já existe e checksum bate, pula.
 
@@ -29,8 +36,12 @@ Decisões:
 - Volume substitui S3 por limitação do Databricks Free Edition.
 - Particionamento Hive desde a landing facilita Auto Loader downstream.
 - Checksum MD5 registrado em JSON ao lado para auditoria.
-- `target_year`/`target_months` NÃO estão na config (vide config.py): são
-  parâmetros de execução, não configuração.
+- `target_year`/`target_months`/`taxi_type` NÃO estão na config (vide
+  config.py): são parâmetros de execução, não configuração.
+- `taxi_type` vira subpath, não Hive partition: o Auto Loader da bronze
+  é configurado por taxi para que cada um vire uma tabela separada
+  (yellow_taxi, green_taxi). Misturar tipos em uma única partição
+  exigiria split posterior por column virtual.
 
 Falhas conhecidas:
 - TLC pode publicar com atraso (>30d). Por isso o modo discover usa um
@@ -51,10 +62,30 @@ from typing import Protocol, Sequence
 
 import requests  # type: ignore[import-untyped]
 
-from nyc_taxi.core.config import DEFAULT_CONFIG, PipelineConfig
+from nyc_taxi.core.config import DEFAULT_CONFIG, SUPPORTED_TAXI_TYPES, PipelineConfig
 from nyc_taxi.core.logging_utils import get_logger, log_with_context
 
 logger = get_logger(__name__)
+
+# Valor especial de CLI que significa "ingerir todos os tipos suportados".
+# Optamos por um marcador explícito (e não None/empty) para que o default
+# fique visível tanto no `--help` quanto nos logs de job.
+TAXI_TYPE_ALL: str = "both"
+
+# Piso de tamanho do Parquet usado pela heurística de idempotência em
+# `file_already_ingested`. As ordens de grandeza vêm direto do TLC:
+#   - Yellow publica ~50 MB/mês — piso de 10 MB cobre downloads parciais
+#     sem incorrer em falsos positivos.
+#   - Green publica ~1–2 MB/mês — um piso de 10 MB rejeitaria todo
+#     arquivo válido e o job rebaixaria green a cada execução. 500 KB
+#     ainda flagra truncamento óbvio sem invalidar o arquivo correto.
+# Um único piso global não atende os dois taxis (10 MB falha green;
+# 100 KB aceitaria yellow truncado), por isso parametrizamos por taxi.
+_MIN_PARQUET_SIZE_BYTES: dict[str, int] = {
+    "yellow": 10_000_000,
+    "green": 500_000,
+}
+_DEFAULT_MIN_PARQUET_SIZE_BYTES: int = 500_000
 
 
 # -----------------------------------------------------------------------------
@@ -131,7 +162,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(
         prog="ingest_landing",
-        description="Ingest NYC TLC Yellow Taxi parquets to UC Volume landing zone",
+        description="Ingest NYC TLC Yellow/Green Taxi parquets to UC Volume landing zone",
     )
 
     # Modo explícito
@@ -161,6 +192,19 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Início da janela de discovery no formato YYYY-MM (obrigatório com --discover)",
     )
 
+    # Tipo de taxi (yellow/green). Default `both` faz o job ingerir os
+    # dois tipos numa única execução — é a expectativa do schedule.
+    parser.add_argument(
+        "--taxi-type",
+        type=str,
+        choices=[*SUPPORTED_TAXI_TYPES, TAXI_TYPE_ALL],
+        default=TAXI_TYPE_ALL,
+        help=(
+            "Tipo de taxi a ingerir. Use 'yellow' ou 'green' para um único "
+            "tipo, ou 'both' para ambos (default: %(default)s)."
+        ),
+    )
+
     # Comuns
     parser.add_argument(
         "--catalog",
@@ -177,6 +221,13 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
 
     return parser.parse_args(argv)
+
+
+def _resolve_taxi_types(taxi_type_arg: str, cfg: PipelineConfig) -> tuple[str, ...]:
+    """Mapeia o valor de `--taxi-type` para a lista de tipos a processar."""
+    if taxi_type_arg == TAXI_TYPE_ALL:
+        return cfg.supported_taxi_types
+    return (taxi_type_arg,)
 
 
 def _validate_args(args: argparse.Namespace) -> None:
@@ -315,12 +366,14 @@ def _list_existing_months(
 
 def discover_missing_months(
     cfg: PipelineConfig,
+    taxi_type: str,
     discover_from: tuple[int, int],
     today: date,
     dbutils: _DbutilsProtocol,
 ) -> list[tuple[int, int]]:
     """
-    Descobre meses ainda não ingeridos na janela [discover_from, hoje - lag].
+    Descobre meses ainda não ingeridos na janela [discover_from, hoje - lag]
+    para um determinado tipo de taxi.
 
     O limite superior subtrai `cfg.tlc_publication_lag_months` do mês corrente
     porque o TLC publica com ~30–45 dias de atraso — tentar baixar o mês
@@ -329,6 +382,7 @@ def discover_missing_months(
     Args:
         cfg: configuração do pipeline (usa landing_volume_path e
             tlc_publication_lag_months).
+        taxi_type: 'yellow' ou 'green' (define o subpath inspecionado).
         discover_from: (year, month) de início da janela, inclusivo.
         today: data corrente (parâmetro para facilitar teste).
         dbutils: cliente de filesystem do Databricks.
@@ -344,7 +398,7 @@ def discover_missing_months(
         end_y -= 1
 
     target_window = _generate_month_range(discover_from, (end_y, end_m))
-    existing = _list_existing_months(cfg.landing_volume_path, dbutils)
+    existing = _list_existing_months(cfg.landing_taxi_path(taxi_type), dbutils)
 
     missing = [ym for ym in target_window if ym not in existing]
     return missing
@@ -366,10 +420,10 @@ def ensure_uc_objects(cfg: PipelineConfig, spark: _SparkSessionProtocol) -> None
         f"CREATE VOLUME IF NOT EXISTS {cfg.catalog}.{cfg.landing_schema}.{cfg.landing_volume}"
     )
     spark.sql(
-        f"CREATE VOLUME IF NOT EXISTS {cfg.catalog}.{cfg.landing_schema}.{cfg.checkpoints_volume}"
+        f"CREATE VOLUME IF NOT EXISTS {cfg.catalog}.{cfg.bronze_schema}.{cfg.checkpoints_volume}"
     )
     spark.sql(
-        f"CREATE VOLUME IF NOT EXISTS {cfg.catalog}.{cfg.landing_schema}.{cfg.schemas_volume}"
+        f"CREATE VOLUME IF NOT EXISTS {cfg.catalog}.{cfg.bronze_schema}.{cfg.schemas_volume}"
     )
     log_with_context(
         logger,
@@ -444,13 +498,18 @@ def download_with_retry(url: str, dest_path: str, cfg: PipelineConfig) -> None:
 
 
 def file_already_ingested(
-    volume_path: str, dbutils: _DbutilsProtocol, expected_size_min: int = 10_000_000
+    volume_path: str,
+    dbutils: _DbutilsProtocol,
+    expected_size_min: int = _DEFAULT_MIN_PARQUET_SIZE_BYTES,
 ) -> bool:
     """
     Verifica se arquivo já foi ingerido (idempotência).
 
-    Heurística: existe e tem tamanho mínimo plausível (>10MB).
-    Em produção, verificar checksum contra metadado.
+    Heurística: existe na partição e tem tamanho >= `expected_size_min`.
+    O piso varia por tipo de taxi (yellow ~50MB/mês, green ~1–2MB/mês),
+    então o caller deve passar o piso correto via
+    `_MIN_PARQUET_SIZE_BYTES[taxi_type]`. Em produção, verificar
+    checksum contra metadado.
     """
     try:
         result = dbutils.fs.ls(volume_path)
@@ -465,30 +524,50 @@ def file_already_ingested(
 
 
 def ingest_month(
-    year: int, month: int, cfg: PipelineConfig, dbutils: _DbutilsProtocol
+    taxi_type: str,
+    year: int,
+    month: int,
+    cfg: PipelineConfig,
+    dbutils: _DbutilsProtocol,
 ) -> dict[str, object]:
     """
-    Ingere um mês de Yellow Taxi.
+    Ingere um mês de um tipo de taxi (yellow ou green).
+
+    Arquivos vão para subpath dedicado por taxi (`.../yellow/...` ou
+    `.../green/...`) para que cada um vire uma tabela bronze independente.
 
     Returns:
         Dict com metadados: status, file_path, size_bytes, md5, etc.
+        Sempre inclui `taxi_type` para correlação no resumo final.
     """
-    url = cfg.tlc_url_template.format(year=year, month=month)
-    file_name = f"yellow_tripdata_{year}-{month:02d}.parquet"
-    partition_path = f"{cfg.landing_volume_path}/year={year}/month={month:02d}"
+    url = cfg.tlc_url_template.format(taxi_type=taxi_type, year=year, month=month)
+    file_name = f"{taxi_type}_tripdata_{year}-{month:02d}.parquet"
+    partition_path = (
+        f"{cfg.landing_taxi_path(taxi_type)}/year={year}/month={month:02d}"
+    )
     dest_path = f"{partition_path}/{file_name}"
     metadata_path = f"{partition_path}/_ingestion_metadata.json"
 
-    # Idempotência
-    if file_already_ingested(partition_path, dbutils):
+    # Idempotência: piso do tamanho varia por taxi (ver
+    # `_MIN_PARQUET_SIZE_BYTES`). Sem isso, green seria rebaixado a cada
+    # execução porque seu Parquet (~1–2MB) fica abaixo do piso default
+    # do yellow (10MB).
+    min_size = _MIN_PARQUET_SIZE_BYTES.get(taxi_type, _DEFAULT_MIN_PARQUET_SIZE_BYTES)
+    if file_already_ingested(partition_path, dbutils, expected_size_min=min_size):
         log_with_context(
             logger,
             logging.INFO,
             "Skipping already-ingested file",
+            taxi_type=taxi_type,
             year=year,
             month=month,
         )
-        return {"status": "skipped", "year": year, "month": month}
+        return {
+            "status": "skipped",
+            "taxi_type": taxi_type,
+            "year": year,
+            "month": month,
+        }
 
     # Criar diretório
     dbutils.fs.mkdirs(partition_path)
@@ -502,6 +581,7 @@ def ingest_month(
     md5 = compute_md5(dest_path)
 
     metadata = {
+        "taxi_type": taxi_type,
         "source_url": url,
         "file_name": file_name,
         "size_bytes": file_stat.size,
@@ -520,6 +600,7 @@ def ingest_month(
         logger,
         logging.INFO,
         "Month ingested successfully",
+        taxi_type=taxi_type,
         year=year,
         month=month,
         size_mb=file_stat.size / 1_048_576,
@@ -535,22 +616,28 @@ def ingest_month(
 
 
 def _resolve_target_window(
-    args: argparse.Namespace, cfg: PipelineConfig, dbutils: _DbutilsProtocol
+    args: argparse.Namespace,
+    taxi_type: str,
+    cfg: PipelineConfig,
+    dbutils: _DbutilsProtocol,
 ) -> list[tuple[int, int]]:
     """
-    Resolve a lista final de (year, month) a ingerir conforme o modo escolhido.
+    Resolve a lista final de (year, month) a ingerir para um tipo de taxi,
+    conforme o modo escolhido.
 
-    Modo explícito → expande target_year × target_months.
-    Modo discovery → consulta volume e calcula diferença.
+    Modo explícito → expande target_year × target_months (mesma janela
+    para todos os taxis).
+    Modo discovery → consulta o subpath do taxi e calcula diferença.
     """
     if args.discover:
         discover_from = _parse_year_month(args.discover_from)
         today = datetime.now(timezone.utc).date()
-        missing = discover_missing_months(cfg, discover_from, today, dbutils)
+        missing = discover_missing_months(cfg, taxi_type, discover_from, today, dbutils)
         log_with_context(
             logger,
             logging.INFO,
             "Discovery mode resolved target window",
+            taxi_type=taxi_type,
             discover_from=args.discover_from,
             missing_count=len(missing),
             missing=[f"{y}-{m:02d}" for y, m in missing],
@@ -571,10 +658,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     Entry point chamado pela Databricks python_wheel task.
 
+    Loop externo é por tipo de taxi (yellow, green ou ambos). Para cada
+    tipo, o loop interno é por (year, month). Falha em um mês — ou em um
+    tipo inteiro — não interrompe os demais.
+
     Returns:
-        0 se ao menos um mês foi processado (ingested ou skipped) OU se
-          discovery não encontrou nada a fazer (nada faltando ≠ erro).
-        1 se todos os meses tentados falharam.
+        0 se ao menos um mês de algum taxi foi processado (ingested ou
+          skipped) OU se a janela total ficou vazia (nada faltando ≠ erro).
+        1 se todos os meses tentados, em todos os taxis, falharam.
     """
     args = _parse_args(argv)
     _validate_args(args)
@@ -584,6 +675,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         catalog=args.catalog,
     )
 
+    taxi_types = _resolve_taxi_types(args.taxi_type, config)
+
     log_with_context(
         logger,
         logging.INFO,
@@ -591,6 +684,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         mode="discover" if args.discover else "explicit",
         catalog=config.catalog,
         environment=config.environment,
+        taxi_types=list(taxi_types),
     )
 
     # Bootstrap spark/dbutils (substitui injeção automática do notebook)
@@ -598,30 +692,40 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # ensure_uc_objects(config, spark)  # opcional; ver runbook
 
-    # Resolve janela alvo (explicit ou discovery)
-    target = _resolve_target_window(args, config, dbutils)
+    # Resolve janela alvo por taxi (explicit ou discovery). Lista plana
+    # de (taxi_type, year, month) para simplificar o loop e o resumo.
+    plan: list[tuple[str, int, int]] = []
+    for taxi_type in taxi_types:
+        window = _resolve_target_window(args, taxi_type, config, dbutils)
+        plan.extend((taxi_type, y, m) for y, m in window)
 
-    if not target:
+    if not plan:
         log_with_context(
             logger,
             logging.INFO,
             "Nothing to ingest — target window is empty",
             mode="discover" if args.discover else "explicit",
+            taxi_types=list(taxi_types),
         )
-        print(json.dumps({"ingested": 0, "skipped": 0, "failed": 0, "nothing_to_do": True}))
+        print(
+            json.dumps(
+                {"ingested": 0, "skipped": 0, "failed": 0, "nothing_to_do": True}
+            )
+        )
         return 0
 
-    # Loop de ingestão
+    # Loop de ingestão (achatado por (taxi_type, year, month))
     results: list[dict[str, object]] = []
-    for year, month in target:
+    for taxi_type, year, month in plan:
         try:
-            result = ingest_month(year, month, config, dbutils)
+            result = ingest_month(taxi_type, year, month, config, dbutils)
             results.append(result)
         except Exception as e:  # noqa: BLE001
             log_with_context(
                 logger,
                 logging.ERROR,
                 "Failed to ingest month",
+                taxi_type=taxi_type,
                 year=year,
                 month=month,
                 error=str(e),
@@ -629,6 +733,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             results.append(
                 {
                     "status": "failed",
+                    "taxi_type": taxi_type,
                     "year": year,
                     "month": month,
                     "error": str(e),
@@ -639,6 +744,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     skipped = sum(1 for r in results if r["status"] == "skipped")
     failed = sum(1 for r in results if r["status"] == "failed")
 
+    # Breakdown por taxi facilita debugar parciais (yellow OK / green falhou).
+    per_taxi: dict[str, dict[str, int]] = {
+        t: {"ingested": 0, "skipped": 0, "failed": 0} for t in taxi_types
+    }
+    for r in results:
+        taxi = str(r.get("taxi_type", ""))
+        if taxi in per_taxi:
+            per_taxi[taxi][str(r["status"])] += 1
+
     log_with_context(
         logger,
         logging.INFO,
@@ -647,9 +761,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         skipped=skipped,
         failed=failed,
         total=len(results),
+        per_taxi=per_taxi,
     )
 
-    print(json.dumps({"ingested": ingested, "skipped": skipped, "failed": failed}))
+    print(
+        json.dumps(
+            {
+                "ingested": ingested,
+                "skipped": skipped,
+                "failed": failed,
+                "per_taxi": per_taxi,
+            }
+        )
+    )
 
     # Falha o job apenas se NENHUM mês teve sucesso (ADR-003).
     if failed > 0 and (ingested + skipped) == 0:

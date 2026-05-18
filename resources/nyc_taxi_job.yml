@@ -8,7 +8,7 @@
 #
 # - Landing roda em modo EXPLÍCITO por default (ver ADR-009, revisão de
 #   2026-05-14): valores vêm das variables `target_year` e `target_months`
-#   do bundle, com defaults do case (2023, Jan-Mai). Discovery continua
+#   do bundle, com defaults do escopo atual (2023, Jan-Mai). Discovery continua
 #   suportado via override manual no momento da execução, mas não é o
 #   modo do schedule.
 #
@@ -25,6 +25,10 @@
 #   do TLC, complementando o retry interno do download_with_retry.
 #
 # - `--environment` é derivado do bundle target (dev/stg/prd) via ${bundle.target}.
+#
+# - `--taxi-type` é controlado pela variable `taxi_type` do bundle (default:
+#   `both` — ingere yellow_taxi E green_taxi numa única execução). Pode ser
+#   sobrescrito no deploy para isolar backfills (ex.: rodar só green).
 
 resources:
   jobs:
@@ -61,6 +65,7 @@ resources:
             parameters:
               - "--target-year=${var.target_year}"
               - "--target-months=${var.target_months}"
+              - "--taxi-type=${var.taxi_type}"
               - "--catalog=${var.catalog}"
               - "--environment=${bundle.target}"
 
@@ -80,6 +85,7 @@ resources:
             package_name: nyc_taxi
             entry_point: bronze_layer
             parameters:
+              - "--taxi-type=${var.taxi_type}"
               - "--catalog=${var.catalog}"
               - "--environment=${bundle.target}"
 
@@ -94,12 +100,25 @@ resources:
             package_name: nyc_taxi
             entry_point: silver_layer
             parameters:
+              - "--taxi-type=${var.taxi_type}"
               - "--catalog=${var.catalog}"
               - "--environment=${bundle.target}"
 
         # ---------------------------------------------------------------------
-        # 04 — Gold: agregados para consumo analítico
+        # 04 — Gold: view de consumo
         # ---------------------------------------------------------------------
+        # Publica `gold.vw_taxi_trips` — view que une yellow + green com
+        # alias `lpep_*` -> `tpep_*` e expoe as colunas obrigatorias do
+        # contrato de consumo (VendorID, passenger_count, total_amount,
+        # tpep_pickup_datetime, tpep_dropoff_datetime + taxi_type para
+        # lineage).
+        #
+        # As perguntas analiticas (A: media mensal yellow; B: media horaria
+        # cross-taxi em mai/2023) NAO sao materializadas — sao respondidas
+        # por SQL ad-hoc rodando contra a view (ver analysis/perguntas_analiticas.sql
+        # e ADR-014). View e' `CREATE OR REPLACE` idempotente, sem refresh
+        # de dados; gold nao depende de `--taxi-type`. Fail-fast (mesma
+        # politica do silver).
         - task_key: gold
           environment_key: default
           depends_on:

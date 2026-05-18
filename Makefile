@@ -9,6 +9,7 @@ CATALOG ?=
 WHEEL_FILE ?= $(shell ls -t dist/*.whl 2>/dev/null | sed 's#^.*/##' | head -n 1)
 TARGET_YEAR ?=
 TARGET_MONTHS ?=
+TAXI_TYPE ?=
 DISCOVER_FROM ?=
 BUNDLE_VARS ?=
 EFFECTIVE_BUNDLE_VARS = $(BUNDLE_VARS) \
@@ -16,9 +17,10 @@ EFFECTIVE_BUNDLE_VARS = $(BUNDLE_VARS) \
 	$(if $(WHEEL_FILE),--var="wheel_file=$(WHEEL_FILE)",) \
 	$(if $(TARGET_YEAR),--var="target_year=$(TARGET_YEAR)",) \
 	$(if $(TARGET_MONTHS),--var="target_months=$(TARGET_MONTHS)",) \
+	$(if $(TAXI_TYPE),--var="taxi_type=$(TAXI_TYPE)",) \
 	$(if $(DISCOVER_FROM),--var="discover_from=$(DISCOVER_FROM)",)
 
-.PHONY: help install test test-landing test-bronze lint format typecheck check clean uv-build dab-validate dab-deploy dab-run dab-destroy ensure-wheel-file
+.PHONY: help install test test-landing test-bronze test-silver test-gold lint format typecheck check clean uv-build dab-validate dab-deploy dab-run dab-destroy ensure-wheel-file
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets:"} /^[a-zA-Z_-]+:.*##/ {printf "  %-12s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -29,6 +31,7 @@ help: ## Show available targets
 	@echo "  WHEEL_FILE     Override the wheel filename (auto-detected from dist/)"
 	@echo "  TARGET_YEAR    Year for landing scheduled run (default in bundle: 2023)"
 	@echo "  TARGET_MONTHS  Months for landing scheduled run (default in bundle: 1,2,3,4,5)"
+	@echo "  TAXI_TYPE      Taxi type to ingest: yellow | green | both (default in bundle: both)"
 	@echo "  DISCOVER_FROM  Initial month for landing discovery mode (not used by schedule)"
 	@echo "  BUNDLE_VARS    Extra --var=\"k=v\" pairs to forward to databricks bundle"
 	@echo ""
@@ -36,6 +39,7 @@ help: ## Show available targets
 	@echo "  make dab-deploy ENV=dev"
 	@echo "  make dab-deploy ENV=prd CATALOG=nyc_taxi_prd"
 	@echo "  make dab-deploy ENV=dev TARGET_YEAR=2024 TARGET_MONTHS=1,2,3"
+	@echo "  make dab-deploy ENV=dev TAXI_TYPE=green   # ingere apenas green_taxi"
 	@echo "  make dab-run    ENV=dev WORKFLOW=nyc_taxi_job"
 
 install: ## Install project dependencies (prefers uv)
@@ -53,6 +57,12 @@ test-landing: ## Run landing layer unit tests
 
 test-bronze: ## Run bronze layer unit tests
 	$(PYTHON) -m unittest tests/test_bronze_main.py -v
+
+test-silver: ## Run silver layer unit tests
+	$(PYTHON) -m unittest tests/test_silver_main.py -v
+
+test-gold: ## Run gold layer unit tests
+	$(PYTHON) -m unittest tests/test_gold_main.py -v
 
 lint: ## Run Ruff lint checks
 ifdef UV
@@ -90,13 +100,13 @@ ensure-wheel-file:
 		exit 1; \
 	fi
 
-dab-validate: ensure-wheel-file ## Validate bundle (ENV=<dev|stg|prd> [CATALOG=<name>] [WHEEL_FILE=<file.whl>] [TARGET_YEAR=YYYY] [TARGET_MONTHS=M1,M2,...] [BUNDLE_VARS='--var="k=v"'])
+dab-validate: ensure-wheel-file ## Validate bundle (ENV=<dev|stg|prd> [CATALOG=<name>] [WHEEL_FILE=<file.whl>] [TARGET_YEAR=YYYY] [TARGET_MONTHS=M1,M2,...] [TAXI_TYPE=yellow|green|both] [BUNDLE_VARS='--var="k=v"'])
 	databricks bundle validate -t $(ENV) $(EFFECTIVE_BUNDLE_VARS)
 
-dab-deploy: uv-build ensure-wheel-file ## Deploy bundle (ENV=<dev|stg|prd> [CATALOG=<name>] [WHEEL_FILE=<file.whl>] [TARGET_YEAR=YYYY] [TARGET_MONTHS=M1,M2,...] [BUNDLE_VARS='--var="k=v"'])
+dab-deploy: uv-build ensure-wheel-file ## Deploy bundle (ENV=<dev|stg|prd> [CATALOG=<name>] [WHEEL_FILE=<file.whl>] [TARGET_YEAR=YYYY] [TARGET_MONTHS=M1,M2,...] [TAXI_TYPE=yellow|green|both] [BUNDLE_VARS='--var="k=v"'])
 	databricks bundle deploy -t $(ENV) $(EFFECTIVE_BUNDLE_VARS)
 
-dab-run: ensure-wheel-file ## Run workflow on demand (ENV=<dev|stg|prd> WORKFLOW=<job_name> [CATALOG=<name>] [WHEEL_FILE=<file.whl>] [TARGET_YEAR=YYYY] [TARGET_MONTHS=M1,M2,...] [BUNDLE_VARS='--var="k=v"'])
+dab-run: ensure-wheel-file ## Run workflow on demand (ENV=<dev|stg|prd> WORKFLOW=<job_name> [CATALOG=<name>] [WHEEL_FILE=<file.whl>] [TARGET_YEAR=YYYY] [TARGET_MONTHS=M1,M2,...] [TAXI_TYPE=yellow|green|both] [BUNDLE_VARS='--var="k=v"'])
 	databricks bundle run -t $(ENV) $(WORKFLOW) $(EFFECTIVE_BUNDLE_VARS)
 
 dab-destroy: ## Destroy bundle resources (ENV=<dev|stg|prd> [CATALOG=<name>] [BUNDLE_VARS='--var="k=v"'])

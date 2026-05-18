@@ -11,21 +11,28 @@ Configuração no job:
         entry_point: ingest_bronze
         parameters:
           - "--environment=dev"
+          - "--taxi-type=both"  # yellow | green | both (default: both)
       # Retry essencial para schema evolution (ver docstring de run_bronze_ingestion).
       max_retries: 2
       min_retry_interval_millis: 30000
 
 Responsabilidades:
 - Detectar novos Parquets na landing zone via Auto Loader (cloudFiles).
-- Carregar em tabela Delta append-only.
+- Carregar em uma tabela Delta append-only por tipo de taxi
+  (`yellow_taxi`, `green_taxi`).
 - Adicionar colunas de linhagem de ingestão (timestamp, arquivo de origem,
-  ano/mês derivados do path Hive-style da landing).
+  ano/mês derivados do path Hive-style da landing, taxi_type).
 - Idempotência via checkpoint do Auto Loader: arquivos já processados não
-  são relidos em execuções subsequentes.
+  são relidos em execuções subsequentes (um checkpoint por taxi).
 - Schema evolution permissiva: o schema vem do próprio Parquet (via Auto
   Loader), novas colunas são adicionadas automaticamente.
 
 Decisões:
+- Uma tabela por tipo de taxi (yellow_taxi, green_taxi) ao invés de uma
+  tabela unificada com coluna `taxi_type`: os schemas do TLC divergem
+  (ex.: yellow tem `tpep_*` e green tem `lpep_*`). Forçar union exigiria
+  reconciliação de colunas que não pertence à bronze (cuja regra é
+  preservar o bruto).
 - CREATE TABLE sem lista de colunas: o schema é inteiramente inferido do
   Parquet pelo primeiro write. Evita duplicação entre DDL e arquivo de
   origem, alinhado com `schemaEvolutionMode=addNewColumns`. Properties
@@ -51,10 +58,14 @@ import logging
 import sys
 from typing import Any, Sequence
 
-from nyc_taxi.core.config import DEFAULT_CONFIG, PipelineConfig
+from nyc_taxi.core.config import DEFAULT_CONFIG, SUPPORTED_TAXI_TYPES, PipelineConfig
 from nyc_taxi.core.logging_utils import get_logger, log_with_context
 
 logger = get_logger(__name__)
+
+# Mesma convenção da landing: `both` é o default e expande para todos
+# os taxis suportados.
+TAXI_TYPE_ALL: str = "both"
 
 
 def _get_spark() -> Any:
@@ -73,7 +84,10 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parseia argumentos da CLI."""
     parser = argparse.ArgumentParser(
         prog="ingest_bronze",
-        description="Ingest NYC TLC Parquet files from landing volume into bronze Delta table",
+        description=(
+            "Ingest NYC TLC Parquet files from landing volume into bronze "
+            "Delta tables (one per taxi type: yellow_taxi, green_taxi)"
+        ),
     )
     parser.add_argument(
         "--catalog",
@@ -88,22 +102,44 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_CONFIG.environment,
         help="Environment do pipeline (default: %(default)s)",
     )
+    parser.add_argument(
+        "--taxi-type",
+        type=str,
+        choices=[*SUPPORTED_TAXI_TYPES, TAXI_TYPE_ALL],
+        default=TAXI_TYPE_ALL,
+        help=(
+            "Tipo de taxi a ingerir na bronze. 'yellow' ou 'green' processa "
+            "apenas uma tabela; 'both' (default) processa as duas em sequência."
+        ),
+    )
     return parser.parse_args(argv)
 
 
-def ensure_bronze_table(cfg: PipelineConfig, spark: Any) -> None:
+def _resolve_taxi_types(taxi_type_arg: str, cfg: PipelineConfig) -> tuple[str, ...]:
+    """Mapeia o valor de `--taxi-type` para a lista de tipos a processar."""
+    if taxi_type_arg == TAXI_TYPE_ALL:
+        return cfg.supported_taxi_types
+    return (taxi_type_arg,)
+
+
+def ensure_bronze_table(cfg: PipelineConfig, taxi_type: str, spark: Any) -> None:
     """
-    Cria a tabela bronze (idempotente) com properties de governance e
-    auto-otimização. Sem lista de colunas — schema vem do write.
+    Cria a tabela bronze de um tipo de taxi (idempotente) com properties
+    de governance e auto-otimização. Sem lista de colunas — schema vem
+    do write do Auto Loader.
+
+    Args:
+        cfg: configuração do pipeline.
+        taxi_type: 'yellow' ou 'green'. Determina o nome da tabela
+            (`yellow_taxi`, `green_taxi`) e o COMMENT.
+        spark: SparkSession.
 
     Por que sem schema declarado?
-        O schema correto da Yellow Taxi é exatamente o do Parquet do TLC.
-        Declarar a lista de colunas aqui duplicaria essa informação e abriria
-        espaço para desincronização (TLC publica coluna nova, DDL fica
-        desatualizada). A propriedade do Delta de criar tabela "empty schema"
-        com properties permite que o primeiro write popule o schema a partir
-        do Parquet, mantendo properties desde o início — coisas que NÃO
-        seriam inferidas se omitíssemos o CREATE.
+        O schema correto de cada taxi é exatamente o do Parquet do TLC,
+        e os schemas de yellow e green divergem (ex.: yellow tem `tpep_*`,
+        green tem `lpep_*`). Declarar a lista de colunas aqui duplicaria
+        essa informação e abriria espaço para desincronização (TLC publica
+        coluna nova, DDL fica desatualizada).
 
     Por que sem CLUSTER BY / PARTITIONED BY?
         Vide ADR-006. Bronze é append-only e lida sequencialmente pela
@@ -111,9 +147,10 @@ def ensure_bronze_table(cfg: PipelineConfig, spark: Any) -> None:
         organização física. `optimizeWrite`/`autoCompact` resolvem small
         files sem o custo de rewrite de clustering.
     """
+    table_fqn = cfg.bronze_table_fqn_for(taxi_type)
     spark.sql(
         f"""
-        CREATE TABLE IF NOT EXISTS {cfg.bronze_table_fqn}
+        CREATE TABLE IF NOT EXISTS {table_fqn}
         USING DELTA
         TBLPROPERTIES (
             'delta.autoOptimize.optimizeWrite' = 'true',
@@ -124,28 +161,39 @@ def ensure_bronze_table(cfg: PipelineConfig, spark: Any) -> None:
             'delta.minWriterVersion' = '5',
             'delta.feature.timestampNtz' = 'supported'
         )
-        COMMENT 'Bronze layer: NYC Yellow Taxi raw ingestion (append-only).'
+        COMMENT 'Bronze layer: NYC {taxi_type.capitalize()} Taxi raw ingestion (append-only).'
         """
     )
 
     spark.sql(
         f"""
-        ALTER TABLE {cfg.bronze_table_fqn}
+        ALTER TABLE {table_fqn}
         SET TAGS (
             'layer' = 'bronze',
             'domain' = 'mobility',
+            'taxi_type' = '{taxi_type}',
             'criticality' = 'tier-2',
             'pii' = 'none'
         )
         """
     )
 
-    log_with_context(logger, logging.INFO, "Bronze table ensured", table=cfg.bronze_table_fqn)
+    log_with_context(
+        logger,
+        logging.INFO,
+        "Bronze table ensured",
+        taxi_type=taxi_type,
+        table=table_fqn,
+    )
 
 
-def run_bronze_ingestion(cfg: PipelineConfig, spark: Any) -> dict[str, int]:
+def run_bronze_ingestion(
+    cfg: PipelineConfig, taxi_type: str, spark: Any
+) -> dict[str, int]:
     """
-    Roda Auto Loader em modo batch (availableNow) e retorna métricas.
+    Roda Auto Loader em modo batch (availableNow) para um tipo de taxi
+    e retorna métricas. Cada taxi tem schemaLocation e checkpointLocation
+    próprios — re-execuções de yellow não afetam green e vice-versa.
 
     Idempotência: o checkpoint do Auto Loader registra quais arquivos já
     foram processados — re-execuções só pegam o que é novo.
@@ -175,8 +223,10 @@ def run_bronze_ingestion(cfg: PipelineConfig, spark: Any) -> dict[str, int]:
             "pyspark.sql.functions not available; running outside Databricks cluster?"
         ) from exc
 
-    schema_location = f"{cfg.schemas_volume_path}/bronze_yellow_trips"
-    checkpoint_location = f"{cfg.checkpoints_volume_path}/bronze_yellow_trips"
+    schema_location = cfg.bronze_schema_location(taxi_type)
+    checkpoint_location = cfg.bronze_checkpoint_location(taxi_type)
+    source_path = cfg.landing_taxi_path(taxi_type)
+    table_fqn = cfg.bronze_table_fqn_for(taxi_type)
 
     stream = (
         spark.readStream.format("cloudFiles")
@@ -191,12 +241,16 @@ def run_bronze_ingestion(cfg: PipelineConfig, spark: Any) -> dict[str, int]:
         # tipagem útil já presente no arquivo.
         .option("cloudFiles.inferColumnTypes", "true")
         .option("cloudFiles.includeExistingFiles", "true")
-        .load(cfg.landing_volume_path)
+        # Subpath por taxi — cada Auto Loader vê apenas o seu dataset.
+        .load(source_path)
         # Linhagem de ingestão. `_metadata` é coluna virtual exposta pelo
         # Auto Loader; não exige read explícito do FS.
         .withColumn("_ingestion_ts", F.current_timestamp())
         .withColumn("_source_file", F.col("_metadata.file_path"))
         .withColumn("_source_file_modification_time", F.col("_metadata.file_modification_time"))
+        # `taxi_type` é constante por execução, mas materializar facilita
+        # auditoria/queries cross-table no futuro.
+        .withColumn("_taxi_type", F.lit(taxi_type))
         .withColumn(
             "_source_year",
             F.regexp_extract(F.col("_metadata.file_path"), r"year=(\d{4})", 1).cast("int"),
@@ -214,7 +268,7 @@ def run_bronze_ingestion(cfg: PipelineConfig, spark: Any) -> dict[str, int]:
         # schema evolution sem intervenção manual.
         .option("mergeSchema", "true")
         .trigger(availableNow=True)
-        .toTable(cfg.bronze_table_fqn)
+        .toTable(table_fqn)
     )
     query.awaitTermination()
 
@@ -229,14 +283,28 @@ def run_bronze_ingestion(cfg: PipelineConfig, spark: Any) -> dict[str, int]:
         ),
     }
 
-    log_with_context(logger, logging.INFO, "Bronze ingestion completed", **metrics)
+    log_with_context(
+        logger,
+        logging.INFO,
+        "Bronze ingestion completed",
+        taxi_type=taxi_type,
+        table=table_fqn,
+        **metrics,
+    )
     return metrics
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Entry point chamado pela Databricks python_wheel task."""
+    """
+    Entry point chamado pela Databricks python_wheel task.
+
+    Processa um ou ambos os tipos de taxi em sequência. Falha em um
+    tipo NÃO interrompe o outro — para que green possa concluir mesmo
+    que yellow tenha disparado UnknownFieldException de schema evolution.
+    """
     args = _parse_args(argv)
     config = PipelineConfig(environment=args.environment, catalog=args.catalog)
+    taxi_types = _resolve_taxi_types(args.taxi_type, config)
 
     log_with_context(
         logger,
@@ -244,17 +312,64 @@ def main(argv: Sequence[str] | None = None) -> int:
         "Starting ingest_bronze",
         catalog=config.catalog,
         environment=config.environment,
-        source_path=config.landing_volume_path,
-        table=config.bronze_table_fqn,
+        taxi_types=list(taxi_types),
     )
 
     spark = _get_spark()
-    ensure_bronze_table(config, spark)
-    metrics = run_bronze_ingestion(config, spark)
+
+    per_taxi: dict[str, dict[str, Any]] = {}
+    failures: list[str] = []
+
+    for taxi_type in taxi_types:
+        try:
+            ensure_bronze_table(config, taxi_type, spark)
+            metrics = run_bronze_ingestion(config, taxi_type, spark)
+            per_taxi[taxi_type] = {"status": "ok", **metrics}
+        except Exception as exc:  # noqa: BLE001
+            # Logar e seguir: queremos que green ainda rode mesmo que
+            # yellow falhe (e vice-versa). O exit code reflete o agregado.
+            log_with_context(
+                logger,
+                logging.ERROR,
+                "Bronze ingestion failed for taxi type",
+                taxi_type=taxi_type,
+                error=str(exc),
+            )
+            per_taxi[taxi_type] = {"status": "failed", "error": str(exc)}
+            failures.append(taxi_type)
+
+    summary: dict[str, Any] = {
+        "rows_ingested": sum(
+            int(v.get("rows_ingested", 0)) for v in per_taxi.values()
+        ),
+        "files_processed": sum(
+            int(v.get("files_processed", 0)) for v in per_taxi.values()
+        ),
+        "per_taxi": per_taxi,
+    }
 
     # Sumário JSON no stdout — visível nos logs do job e consumível por
     # tasks downstream via `dbutils.jobs.taskValues`.
-    print(json.dumps(metrics))
+    print(json.dumps(summary))
+
+    if failures:
+        # Reraise estilo "fail fast" só quando TODOS os taxis falharam;
+        # falha parcial mantém exit 0 alinhado à política da landing.
+        if len(failures) == len(taxi_types):
+            log_with_context(
+                logger,
+                logging.ERROR,
+                "All taxi types failed bronze ingestion",
+                failures=failures,
+            )
+            return 1
+        log_with_context(
+            logger,
+            logging.WARNING,
+            "Bronze ingestion completed with partial failures",
+            failures=failures,
+        )
+
     return 0
 
 

@@ -37,6 +37,15 @@ variables:
     description: Comma-separated months to ingest in the scheduled landing run
     default: "1,2,3,4,5"
 
+  # Taxi type a ingerir (landing + bronze). Aceita 'yellow', 'green' ou
+  # 'both' (default). 'both' faz uma única execução baixar e materializar
+  # tanto yellow_taxi quanto green_taxi.
+  # Override exemplo para rodar apenas green em backfill:
+  #   databricks bundle deploy -t dev --var="taxi_type=green"
+  taxi_type:
+    description: Taxi type to ingest (yellow | green | both)
+    default: "both"
+
   # Landing — discovery (modo opcional, NÃO usado pelo schedule).
   # Mantido para execução manual via `databricks bundle run` ou
   # override em backfill futuro. Não tem efeito no schedule diário.

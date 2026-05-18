@@ -48,15 +48,51 @@ class TestLandingMain(unittest.TestCase):
             )
 
     def test_file_already_ingested_returns_true_when_any_file_is_large_enough(self) -> None:
+        # Yellow tem ~50MB/mês — o piso de 10MB cobre o caso típico.
         dbutils = _FakeDbutils(_FakeDbutilsFs([_FakeEntry(1000), _FakeEntry(12_000_000)]))
-        self.assertTrue(landing_main.file_already_ingested("/Volumes/x", dbutils))  # type: ignore[arg-type]
+        self.assertTrue(
+            landing_main.file_already_ingested(
+                "/Volumes/x",
+                dbutils,  # type: ignore[arg-type]
+                expected_size_min=landing_main._MIN_PARQUET_SIZE_BYTES["yellow"],
+            )
+        )
+
+    def test_file_already_ingested_uses_lower_threshold_for_green(self) -> None:
+        # Green publica ~1–2MB/mês. Com o piso default do yellow (10MB),
+        # esses arquivos seriam tratados como ausentes e rebaixados a
+        # cada execução. O piso de green precisa permitir o tamanho real.
+        dbutils = _FakeDbutils(_FakeDbutilsFs([_FakeEntry(1_400_000)]))
+        self.assertTrue(
+            landing_main.file_already_ingested(
+                "/Volumes/x",
+                dbutils,  # type: ignore[arg-type]
+                expected_size_min=landing_main._MIN_PARQUET_SIZE_BYTES["green"],
+            )
+        )
+
+    def test_file_already_ingested_default_threshold_skips_green_sized_files(self) -> None:
+        # Sanity check: o default do callsite continua plausível —
+        # arquivos abaixo de 500KB são considerados truncados/ausentes.
+        dbutils = _FakeDbutils(_FakeDbutilsFs([_FakeEntry(100_000)]))
+        self.assertFalse(landing_main.file_already_ingested("/Volumes/x", dbutils))  # type: ignore[arg-type]
 
     def test_file_already_ingested_returns_false_when_ls_fails(self) -> None:
         dbutils = _FakeDbutils(_FakeDbutilsFs([], should_raise=True))
         self.assertFalse(landing_main.file_already_ingested("/Volumes/x", dbutils))  # type: ignore[arg-type]
 
+    def test_min_parquet_size_bytes_has_an_entry_per_supported_taxi(self) -> None:
+        # Garante que o map per-taxi não saia do passo com SUPPORTED_TAXI_TYPES.
+        # Se um taxi novo for adicionado, este teste falha pedindo o piso correto.
+        from nyc_taxi.core.config import SUPPORTED_TAXI_TYPES
+
+        self.assertEqual(
+            set(landing_main._MIN_PARQUET_SIZE_BYTES.keys()),
+            set(SUPPORTED_TAXI_TYPES),
+        )
+
     def test_main_returns_zero_when_at_least_one_month_succeeds(self) -> None:
-        calls: list[int] = []
+        calls: list[tuple[str, int]] = []
 
         def fake_parse_args(_argv: Any) -> SimpleNamespace:
             return SimpleNamespace(
@@ -64,6 +100,7 @@ class TestLandingMain(unittest.TestCase):
                 target_months="1,2,3",
                 discover=False,
                 discover_from=None,
+                taxi_type="yellow",
                 catalog="nyc_taxi_dev",
                 environment="dev",
             )
@@ -72,14 +109,18 @@ class TestLandingMain(unittest.TestCase):
             return object(), object()
 
         def fake_ingest_month(
-            _year: int, month: int, _cfg: object, _dbutils: object
-        ) -> dict[str, str]:
-            calls.append(month)
+            taxi_type: str,
+            _year: int,
+            month: int,
+            _cfg: object,
+            _dbutils: object,
+        ) -> dict[str, Any]:
+            calls.append((taxi_type, month))
             if month == 2:
                 raise RuntimeError("error month 2")
             if month == 1:
-                return {"status": "ingested"}
-            return {"status": "skipped"}
+                return {"status": "ingested", "taxi_type": taxi_type}
+            return {"status": "skipped", "taxi_type": taxi_type}
 
         with (
             patch("nyc_taxi.lakehouse.landing.main._parse_args", fake_parse_args),
@@ -93,19 +134,23 @@ class TestLandingMain(unittest.TestCase):
             exit_code = landing_main.main([])
 
         self.assertEqual(exit_code, 0)
-        self.assertEqual(calls, [1, 2, 3])
-        self.assertEqual(
-            captured.getvalue().strip(),
-            '{"ingested": 1, "skipped": 1, "failed": 1}',
-        )
+        self.assertEqual(calls, [("yellow", 1), ("yellow", 2), ("yellow", 3)])
+        payload = captured.getvalue().strip()
+        self.assertIn('"ingested": 1', payload)
+        self.assertIn('"skipped": 1', payload)
+        self.assertIn('"failed": 1', payload)
+        self.assertIn('"per_taxi"', payload)
 
-    def test_main_returns_one_when_all_months_fail(self) -> None:
+    def test_main_iterates_over_both_taxis_when_taxi_type_is_both(self) -> None:
+        calls: list[tuple[str, int]] = []
+
         def fake_parse_args(_argv: Any) -> SimpleNamespace:
             return SimpleNamespace(
                 target_year=2023,
-                target_months="4,5",
+                target_months="1",
                 discover=False,
                 discover_from=None,
+                taxi_type="both",
                 catalog="nyc_taxi_dev",
                 environment="dev",
             )
@@ -114,8 +159,55 @@ class TestLandingMain(unittest.TestCase):
             return object(), object()
 
         def fake_ingest_month(
-            _year: int, _month: int, _cfg: object, _dbutils: object
-        ) -> dict[str, str]:
+            taxi_type: str,
+            _year: int,
+            month: int,
+            _cfg: object,
+            _dbutils: object,
+        ) -> dict[str, Any]:
+            calls.append((taxi_type, month))
+            return {"status": "ingested", "taxi_type": taxi_type}
+
+        with (
+            patch("nyc_taxi.lakehouse.landing.main._parse_args", fake_parse_args),
+            patch(
+                "nyc_taxi.lakehouse.landing.main._get_spark_and_dbutils",
+                fake_get_spark_and_dbutils,
+            ),
+            patch("nyc_taxi.lakehouse.landing.main.ingest_month", fake_ingest_month),
+            redirect_stdout(io.StringIO()) as captured,
+        ):
+            exit_code = landing_main.main([])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(calls, [("yellow", 1), ("green", 1)])
+        payload = captured.getvalue().strip()
+        self.assertIn('"ingested": 2', payload)
+        self.assertIn('"yellow"', payload)
+        self.assertIn('"green"', payload)
+
+    def test_main_returns_one_when_all_months_fail(self) -> None:
+        def fake_parse_args(_argv: Any) -> SimpleNamespace:
+            return SimpleNamespace(
+                target_year=2023,
+                target_months="4,5",
+                discover=False,
+                discover_from=None,
+                taxi_type="yellow",
+                catalog="nyc_taxi_dev",
+                environment="dev",
+            )
+
+        def fake_get_spark_and_dbutils() -> tuple[object, object]:
+            return object(), object()
+
+        def fake_ingest_month(
+            _taxi_type: str,
+            _year: int,
+            _month: int,
+            _cfg: object,
+            _dbutils: object,
+        ) -> dict[str, Any]:
             raise RuntimeError("all failed")
 
         with (
@@ -130,10 +222,10 @@ class TestLandingMain(unittest.TestCase):
             exit_code = landing_main.main([])
 
         self.assertEqual(exit_code, 1)
-        self.assertEqual(
-            captured.getvalue().strip(),
-            '{"ingested": 0, "skipped": 0, "failed": 2}',
-        )
+        payload = captured.getvalue().strip()
+        self.assertIn('"ingested": 0', payload)
+        self.assertIn('"skipped": 0', payload)
+        self.assertIn('"failed": 2', payload)
 
     def test_main_discover_returns_zero_when_target_window_is_empty(self) -> None:
         def fake_parse_args(_argv: Any) -> SimpleNamespace:
@@ -142,6 +234,7 @@ class TestLandingMain(unittest.TestCase):
                 target_months=None,
                 discover=True,
                 discover_from="2023-01",
+                taxi_type="yellow",
                 catalog="nyc_taxi_dev",
                 environment="dev",
             )
@@ -172,6 +265,67 @@ class TestLandingMain(unittest.TestCase):
             captured.getvalue().strip(),
             '{"ingested": 0, "skipped": 0, "failed": 0, "nothing_to_do": true}',
         )
+
+
+class _StubDbutilsFs:
+    """Fs stub que retorna o mesmo conjunto de entries para qualquer
+    `ls(path)` — suficiente para validar a heurística de idempotência
+    em `ingest_month`."""
+
+    def __init__(self, entries: list[_FakeEntry]) -> None:
+        self._entries = entries
+
+    def ls(self, _path: str) -> list[_FakeEntry]:
+        return self._entries
+
+    def mkdirs(self, _path: str) -> None:  # pragma: no cover - não esperado
+        raise AssertionError("mkdirs should not be called when file is already ingested")
+
+    def put(self, _path: str, _contents: str, **_kwargs: Any) -> None:  # pragma: no cover
+        raise AssertionError("put should not be called when file is already ingested")
+
+
+class TestIngestMonthIdempotency(unittest.TestCase):
+    """
+    Garante que green é tratado igual a yellow no skip de re-download:
+    com o piso correto por taxi (`_MIN_PARQUET_SIZE_BYTES`), arquivos
+    já presentes no volume não são rebaixados.
+    """
+
+    def _run(self, taxi_type: str, file_size: int) -> dict[str, Any]:
+        from nyc_taxi.core.config import PipelineConfig
+
+        cfg = PipelineConfig(catalog="nyc_taxi_dev", environment="dev")
+        dbutils = _FakeDbutils(_StubDbutilsFs([_FakeEntry(file_size)]))
+
+        download_calls: list[str] = []
+
+        def fake_download(url: str, _dest: str, _cfg: object) -> None:
+            download_calls.append(url)
+
+        with patch(
+            "nyc_taxi.lakehouse.landing.main.download_with_retry",
+            side_effect=fake_download,
+        ):
+            result = landing_main.ingest_month(
+                taxi_type, 2023, 1, cfg, dbutils,  # type: ignore[arg-type]
+            )
+
+        result["_download_calls"] = download_calls  # type: ignore[assignment]
+        return result
+
+    def test_yellow_skips_when_existing_file_is_above_yellow_threshold(self) -> None:
+        # 12MB > piso de 10MB do yellow → skip.
+        result = self._run("yellow", file_size=12_000_000)
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["_download_calls"], [])
+
+    def test_green_skips_when_existing_file_is_above_green_threshold(self) -> None:
+        # 1.4MB > piso de 500KB do green → skip. Antes do fix esse caso
+        # rebaixava porque o piso comum era 10MB.
+        result = self._run("green", file_size=1_400_000)
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["_download_calls"], [])
 
 
 if __name__ == "__main__":
