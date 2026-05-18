@@ -27,6 +27,88 @@ A solução é inteiramente **automatizada e parametrizável** — o pipeline ro
 
 ---
 
+## Estrutura de Diretórios
+
+```
+nyc_taxi/
+├── src/
+│   └── nyc_taxi/
+│       ├── core/
+│       │   ├── config.py
+│       │   └── logging_utils.py
+│       └── lakehouse/
+│           ├── landing/
+│           │   └── main.py
+│           ├── bronze/
+│           │   └── main.py
+│           ├── silver/
+│           │   └── main.py
+│           └── gold/
+│               └── main.py
+├── resources/
+│   └── nyc_taxi_job.yml
+├── tests/
+│   ├── test_landing_main.py
+│   ├── test_bronze_main.py
+│   ├── test_silver_main.py
+│   └── test_gold_main.py
+├── docs/
+│   ├── adr/
+│   ├── layers/
+│   ├── setup/
+│   ├── sql/
+│   ├── security/
+│   └── cost/
+├── analysis/
+│   └── perguntas_analiticas.sql
+├── databricks.yml
+├── pyproject.toml
+├── Makefile
+└── README.md
+```
+
+### `src/nyc_taxi/`
+
+Código-fonte do pipeline, empacotado como wheel Python (`nyc_taxi`). Segue o layout `src/` recomendado para projetos Python modernos, garantindo isolamento entre o código de produção e os artefatos de teste e build.
+
+- **`core/config.py`** — definição centralizada do `PipelineConfig`: parâmetros de execução (catálogo, janela temporal, thresholds de DQ), FQNs das tabelas e caminhos de volume. É o contrato de configuração compartilhado entre todas as camadas.
+- **`core/logging_utils.py`** — utilitários de logging estruturado usados por todas as camadas do pipeline.
+- **`lakehouse/landing/main.py`** — lógica de download idempotente dos arquivos Parquet da CDN do TLC para o UC Volume, com suporte a modo explícito (lista de meses) e discovery (varredura de disponíveis).
+- **`lakehouse/bronze/main.py`** — ingestão via Auto Loader do UC Volume para tabelas Delta, com checkpoint independente por tipo de táxi e preservação dos metadados de origem (`_source_file`, `_ingestion_ts`).
+- **`lakehouse/silver/main.py`** — curadoria e normalização: DDL explícito, validação de DQ inline ancorada nos data dictionaries do TLC e MERGE idempotente para `yellow_taxi_trips` e `green_taxi_trips`.
+- **`lakehouse/gold/main.py`** — criação da view de consumo `vw_taxi_trips`, unindo Yellow e Green com alias de colunas padronizado e contrato de schema para o consumidor analítico.
+
+### `resources/`
+
+Definições de workflow do Databricks em formato YAML, gerenciadas pelo DAB. O arquivo `nyc_taxi_job.yml` declara o job com suas tasks (uma por camada), parâmetros, permissões e configuração de compute Serverless — sem hardcode de `cluster_id` ou host.
+
+### `tests/`
+
+Testes unitários por camada, executáveis localmente sem SparkSession completo. Cada arquivo cobre os casos de transformação, validação de DQ e contratos de schema da respectiva camada.
+
+### `docs/`
+
+Documentação técnica organizada por tema:
+
+- **`adr/`** — Architectural Decision Records: 15 ADRs documentando o *porquê* de cada decisão de design, com alternativas avaliadas e gatilhos para revisão. Ordem de leitura sugerida em [`docs/adr/README.md`](docs/adr/README.md).
+- **`layers/`** — análise técnica de cada camada (Landing, Bronze, Silver, Gold): implementação atual, fluxo de execução, entradas/saídas, riscos e próximos passos.
+- **`setup/`** — guia de setup para o Databricks Free Edition, cobrindo bootstrap do Unity Catalog, deploy do bundle e execução do workflow.
+- **`sql/`** — scripts DDL de bootstrap: criação de catálogo, schemas e volumes no Unity Catalog, executados uma única vez antes do primeiro deploy.
+- **`security/`** — threat model do pipeline: superfície de ataque, fluxos de dados sensíveis e controles implementados.
+- **`cost/`** — modelo de monitoramento de custo: estimativas de TCO por camada e recomendações de otimização.
+
+### `analysis/`
+
+Consultas SQL ad-hoc sobre a camada Gold, respondendo às perguntas analíticas do case. Rodam diretamente no SQL Editor do Databricks contra a view `vw_taxi_trips`.
+
+### Arquivos raiz
+
+- **`databricks.yml`** — manifesto principal do DAB: define targets (`dev`, `prd`), variáveis parametrizáveis (`catalog`, `wheel_file`) e referências aos recursos em `resources/`.
+- **`pyproject.toml`** — configuração do projeto Python: dependências, entrypoints do wheel (`ingest_landing`, `ingest_bronze`, `ingest_silver`, `ingest_gold`), ferramentas de qualidade (`ruff`, `mypy`) e configuração do `pytest`.
+- **`Makefile`** — interface unificada de operações: build, testes, deploy e execução do pipeline via targets padronizados.
+
+---
+
 ## Arquitetura
 
 O pipeline adota a **arquitetura Lakehouse em camadas**, combinando a flexibilidade de um Data Lake (armazenamento de baixo custo, dado bruto histórico) com a confiabilidade semântica de um Data Warehouse (tabelas Delta com ACID, schema e SQL).
