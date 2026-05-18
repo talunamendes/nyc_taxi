@@ -29,8 +29,8 @@ flowchart LR
 
 - `landing`: implementada (download, idempotencia basica, metadados e modo discovery).
 - `bronze`: implementada (Auto Loader -> Delta com checkpoint e schema evolution).
-- `silver`: placeholder inicial.
-- `gold`: placeholder inicial.
+- `silver`: implementada (uma tabela por taxi com DDL explicito, DQ inline e MERGE idempotente).
+- `gold`: implementada (uma unica view `vw_taxi_trips` com as colunas obrigatorias do contrato de consumo; perguntas analiticas respondidas por SQL ad-hoc em `analysis/`).
 
 ## Quickstart (Databricks Free Edition)
 
@@ -57,34 +57,47 @@ Documentação oficial: [Databricks Declarative Automation Bundles](https://docs
 - Rodar testes unitarios: `make test`
 - Rodar testes da landing: `make test-landing`
 - Rodar testes da bronze: `make test-bronze`
+- Rodar testes da silver: `make test-silver`
+- Rodar testes da gold: `make test-gold`
 - Validar bundle: `make dab-validate ENV=dev CATALOG=nyc_taxi_dev`
 - Deploy de bundle: `make dab-deploy ENV=dev CATALOG=nyc_taxi_dev`
 - Executar workflow: `make dab-run ENV=dev WORKFLOW=nyc_taxi_job CATALOG=nyc_taxi_dev`
 
 ## Consultas analiticas de referencia (camada gold)
 
-As consultas abaixo sao exemplos de consumo quando a camada `gold` estiver publicada.
+A gold publica uma unica view, `vw_taxi_trips`, que une yellow + green
+com alias `lpep_*` -> `tpep_*` e expoe as 5 colunas obrigatorias do
+contrato de consumo (`VendorID`, `passenger_count`, `total_amount`,
+`tpep_pickup_datetime`, `tpep_dropoff_datetime`) + `taxi_type` para
+lineage. SQL completo das perguntas em
+`analysis/perguntas_analiticas.sql`. Justificativa em
+[ADR-014](docs/adr/ADR-014-gold-data-model-per-question.md).
 
-**Pergunta A**: media de `total_amount` por mes.
+**Pergunta A**: media mensal de `total_amount` (yellow).
 
 ```sql
 SELECT
   date_trunc('month', tpep_pickup_datetime) AS month_ref,
-  AVG(total_amount) AS avg_total_amount
-FROM <catalog>.gold.<tabela_consumo>
+  AVG(total_amount)                          AS avg_total_amount,
+  COUNT(*)                                   AS trips_count
+FROM <catalog>.gold.vw_taxi_trips
+WHERE taxi_type = 'yellow'
 GROUP BY 1
 ORDER BY 1;
 ```
 
-**Pergunta B**: media de `passenger_count` por hora do dia em um periodo.
+**Pergunta B**: media de `passenger_count` por hora do dia em mai/2023,
+considerando todos os taxis (yellow + green).
 
 ```sql
 SELECT
   hour(tpep_pickup_datetime) AS hour_of_day,
-  AVG(passenger_count) AS avg_passenger_count
-FROM <catalog>.gold.<tabela_consumo>
-WHERE tpep_pickup_datetime >= TIMESTAMP('<inicio>')
-  AND tpep_pickup_datetime < TIMESTAMP('<fim>')
+  AVG(passenger_count)       AS avg_passenger_count,
+  COUNT(*)                   AS trips_count
+FROM <catalog>.gold.vw_taxi_trips
+WHERE tpep_pickup_datetime >= TIMESTAMP('2023-05-01')
+  AND tpep_pickup_datetime <  TIMESTAMP('2023-06-01')
+  AND passenger_count IS NOT NULL
 GROUP BY 1
 ORDER BY 1;
 ```
