@@ -73,7 +73,7 @@ Uma forma simples de evoluir:
 
 ## Disclaimer
 
-Este documento, nesta etapa do case, tem objetivo **orientativo**: chamar atenção para a necessidade do levantamento de custo total de propriedade e estruturar a forma de cálculo.
+Este documento, nesta etapa do projeto, tem objetivo **orientativo**: chamar atenção para a necessidade do levantamento de custo total de propriedade e estruturar a forma de cálculo.
 
 Os valores apresentados são **fictícios** e servem apenas como exemplo didático.  
 Para decisões reais de arquitetura e investimento, o TCO deve ser recalculado com dados observados de produção, preços vigentes do provedor e premissas validadas com áreas de engenharia, finanças e operação.
