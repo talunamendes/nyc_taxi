@@ -57,4 +57,4 @@ Critérios de validação contínua:
 
 - quando contratos downstream exigirem completude total por janela de execução;
 - quando SLAs de qualidade não aceitarem entrega parcial;
-- quando houver mecanismo robusto de retries por partition que torne fail-fast mais seguro.
+- quando o pipeline for redesenhado para execução independente de partições com orquestração própria por mês (ex: DAG separada por partição), tornando a política de falha parcial desnecessária no nível do job.

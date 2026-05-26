@@ -88,7 +88,7 @@ Criterios de validacao continua:
 
 **Quando essa decisao deve ser revisitada?**
 
-- Quando o volume e frequencia mudarem drasticamente (ex: ingestao sub-horaria com requisitos near-real-time).
 - Quando houver exigencia forte de portabilidade para engine sem suporte Delta/UC.
-- Quando o pipeline deixar de ser single-domain e surgir necessidade real de ownership federado (gatilho para data mesh).
 - Quando o custo operacional das multiplas camadas superar o beneficio de auditabilidade e evolucao (indicador de sobreengenharia).
+
+> Nota 1: aumento de volume e frequencia **nao** e gatilho para revisao desta arquitetura. Lakehouse em camadas e compativel com alta volumetria e ingestao de alta frequencia; eventuais ajustes nesse cenario sao de implementacao (ex: Auto Loader com trigger continuo, compactacao de arquivos pequenos), nao de arquitetura.
